@@ -1,0 +1,28 @@
+optimal_production_scale:
+  max_score: 100
+  weights:
+    buyer_clarity: 10
+    pain_urgency: 10
+    offer_attractiveness: 15
+    price_accessibility: 10
+    payment_path_clarity: 10
+    delivery_simplicity: 10
+    compute_efficiency: 10
+    gross_margin_potential: 10
+    build_feasibility: 10
+    reuse_clone_potential: 5
+    strategic_alignment: 5
+
+risk_penalties:
+  low: 0
+  medium: -5
+  high: -20
+  regulated: -30
+
+thresholds:
+  produce_optimal: 90
+  produce_controlled: 80
+  refine_before_production: 70
+  validate_or_refine: 55
+  incubate: 40
+  preserve: 0

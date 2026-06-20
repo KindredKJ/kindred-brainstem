@@ -4,3 +4,10 @@ ecosystem: "Kindred Labs"
 repo: "kindred-brainstem"
 mission: "Convert signals into governed, optimized, revenue-aware infrastructure."
 prime_directive: "Produce only what is attractive, priced, accessible, easy to deliver, low-cost to operate, safe, reusable, and strategically valuable."
+
+native_engines:
+  - name: "Kindred Revenue Stack Engine"
+    id: "kindred_revenue_stack_engine"
+    abbreviation: "KRSE"
+    purpose: "Convert approved products and child infrastructures into clear USD offers, pricing models, payment paths, payout plans, margin models, reinvestment loops, and spendable revenue strategy."
+    status: "native_core_engine"

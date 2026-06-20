@@ -1,0 +1,63 @@
+mission: "Guide Kindred Labs to produce infrastructure, products, and services that generate USD, deliver measurable value, protect compute cost, and compound into reusable strategic assets."
+
+tagline: "BRAINSTEM: From Signal to Infrastructure."
+
+prime_directive: "Produce only what is attractive, priced, accessible, easy to deliver, low-cost to operate, safe, reusable, and strategically valuable."
+
+native_kindred_tools:
+  kindred_revenue_stack_engine:
+    name: "Kindred Revenue Stack Engine"
+    abbreviation: "KRSE"
+    role: "Native revenue doctrine engine inside BRAINSTEM."
+    purpose: "Ensure every approved revenue product has a clear offer, price, payment path, margin model, payout path, reserve logic, reinvestment loop, and spendable USD strategy."
+    required_for:
+      - "revenue_product"
+      - "subscription_product"
+      - "setup_fee_product"
+      - "success_fee_product"
+      - "usage_based_product"
+      - "enterprise_package"
+    output_requirements:
+      - "offer_statement"
+      - "target_buyer"
+      - "price_model"
+      - "payment_path"
+      - "gross_revenue_model"
+      - "compute_cost_model"
+      - "gross_margin_model"
+      - "reserve_model"
+      - "payout_path"
+      - "reinvestment_plan"
+      - "personal_pay_path"
+      - "upsell_or_recurring_path"
+
+production_laws:
+  - "No buyer, no revenue product."
+  - "No painful problem, no priority."
+  - "No concrete deliverable, no sale."
+  - "No payment path, no revenue product."
+  - "No Kindred Revenue Stack Engine pass, no revenue launch."
+  - "No compute-cost cap, no autonomous build."
+  - "No proof, no big claim."
+  - "No safety gate, no production autonomy."
+  - "No metrics, no scaling."
+  - "No endless refinement."
+  - "No failed work is wasted; preserve, merge, incubate, or repurpose it."
+
+default_priority:
+  1: "Revenue-generating optimized offers."
+  2: "Customer-facing deliverables."
+  3: "Internal tools that reduce delivery time and cost."
+  4: "Reusable infrastructure templates."
+  5: "Proof-of-work demos."
+  6: "Long-term R&D."
+
+revenue_doctrine:
+  native_engine: "Kindred Revenue Stack Engine"
+  core_rule: "Every revenue product must explain exactly how USD enters, where it is processed, how it pays out, what is reserved, what is reinvested, and what becomes spendable."
+  default_allocation_model:
+    reserve_taxes_and_buffer_percent: 30
+    operations_tools_compute_percent: 20
+    reinvestment_marketing_percent: 20
+    personal_pay_percent: 30
+  warning: "This allocation model is planning logic, not tax, legal, or financial advice."

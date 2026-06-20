@@ -1,0 +1,56 @@
+kindred_revenue_stack_engine:
+  name: "Kindred Revenue Stack Engine"
+  abbreviation: "KRSE"
+  status: "native_core_engine"
+
+  purpose:
+    "Turn BRAINSTEM-approved products into real USD pathways by creating offer logic, pricing logic, payment path logic, margin logic, payout planning, reserve allocation, reinvestment planning, and spendable-money strategy."
+
+  required_inputs:
+    - product_name
+    - target_buyer
+    - buyer_pain
+    - deliverable
+    - production_mode
+    - price_model
+    - estimated_compute_cost_monthly_usd
+    - estimated_delivery_time_minutes
+    - estimated_gross_margin_percent
+    - risk_level
+
+  required_outputs:
+    - offer_statement
+    - pricing_recommendation
+    - payment_path
+    - payout_path
+    - gross_revenue_estimate
+    - compute_cost_review
+    - gross_margin_review
+    - reserve_plan
+    - reinvestment_plan
+    - personal_pay_path
+    - upsell_path
+    - recurring_revenue_path
+
+  default_money_path:
+    - "Customer sees offer"
+    - "Customer pays through payment page"
+    - "Payment processor balance receives funds"
+    - "Funds become available for payout"
+    - "Payout reaches connected bank account"
+    - "Money becomes spendable USD"
+    - "BRAINSTEM allocates reserve, operations, reinvestment, and personal pay"
+
+  default_allocation_model:
+    reserve_taxes_and_buffer_percent: 30
+    operations_tools_compute_percent: 20
+    reinvestment_marketing_percent: 20
+    personal_pay_percent: 30
+
+  hard_rules:
+    - "Do not launch revenue product without a payment path."
+    - "Do not approve pricing if compute cost destroys margin."
+    - "Do not claim guaranteed outcomes unless verified and legally safe."
+    - "Do not change bank or payout settings autonomously."
+    - "Do not charge customers autonomously without founder approval."
+    - "Do not treat planning allocation as tax/legal/financial advice."
