@@ -20,6 +20,17 @@ dev = [
 [project.scripts]
 brainstem = "brainstem.cli.app:app"
 
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["brainstem*"]
+exclude = [
+    "data*",
+    "config*",
+    "products*",
+    "generated*",
+    "tests*"
+]
+
 [build-system]
 requires = ["setuptools>=68.0"]
 build-backend = "setuptools.build_meta"
