@@ -1,0 +1,7 @@
+id: moneyback_scan
+name: MoneyBack Scan
+target_buyer: consumers and operators
+deliverable: local audit-support scan report
+price_model: {type: planning_only, amount_usd: 0}
+estimated_gross_margin_percent: 70
+estimated_compute_cost_monthly_usd: 0

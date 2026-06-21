@@ -1,0 +1,7 @@
+from brainstem.utils.paths import ROOT
+from brainstem.utils.jsonl import append_jsonl
+DOWNGRADES={'production_ready':'staging_candidate','launched':'launch_planned_or_unverified','revenue_generating':'revenue_path_defined','paid_result':'payment_not_verified','externally_impactful':'external_impact_pending','blockchain_backed':'blockchain_anchor_pending','autonomous':'human_gated_automation','world_class':'earth_class_candidate','best_on_earth':'unproven_high_potential','verified':'verification_pending','scalable':'scaling_candidate','fully_adaptive':'adaptive_architecture_candidate','plug_and_play':'plugcore_candidate','hardware_ready':'hardware_adapter_needed','tax_ready':'tax_professional_review_packet_needed','legally_consolidated':'legal_transition_plan_needed','trademark_cleared':'trademark_review_needed','asset_owned':'ownership_evidence_needed','revenue_verified':'revenue_evidence_needed','CPA_ready':'CPA_review_packet_candidate','investor_ready':'investor_diligence_packet_needed'}
+def review(product_id, claims):
+    results=[{'claim':c,'allowed':False,'safe_claim':DOWNGRADES.get(c,'evidence_required'),'reason':'evidence required under Result-Only Doctrine'} for c in claims]
+    rec={'product_id':product_id,'results':results,'status':'RESULT_REFINED','next_required_result':'attach evidence before using protected claims'}
+    append_jsonl(ROOT/'data'/'claim_guard.jsonl', rec); return rec

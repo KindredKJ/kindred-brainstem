@@ -1,0 +1,1 @@
+def require_founder_review(action: str) -> bool: return action in {'public_launch','revenue_launch','payment_activation','customer_charge','legal_filing','tax_filing','asset_transfer','IP_assignment','trademark_filing','blockchain_transaction','execute_hard'}

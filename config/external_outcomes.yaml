@@ -1,0 +1,10 @@
+external_outcomes:
+  access: [live_url_verified, api_endpoint_verified, public_page_loaded, external_healthcheck_passed, dns_resolved, ssl_validated]
+  human_action: [form_submitted, account_created, intake_received, document_uploaded, email_reply_received, demo_requested, waitlist_joined]
+  money: [payment_attempted, payment_received, invoice_created, subscription_created, refund_processed, payout_available, payout_completed, deposit_received]
+  delivery: [report_delivered, proof_packet_delivered, dashboard_access_granted, file_downloaded, service_enabled, customer_result_confirmed]
+  infrastructure: [deployment_completed, service_healthy, webhook_received, external_api_call_succeeded, uptime_check_passed, database_write_confirmed, git_commit_created, git_commit_merged]
+  strategic: [partner_contacted, partner_reply_received, agreement_signed, grant_submitted, vendor_confirmed, pilot_site_confirmed, proposal_sent, proposal_accepted]
+  market: [search_visibility_detected, social_mention_detected, competitor_signal_recorded, demand_signal_recorded, inbound_interest_recorded]
+  proof: [birth_certificate_created, proof_packet_created, checksum_verified, ledger_entry_created, contract_anchor_created, blockchain_anchor_pending, blockchain_transaction_verified]
+  audit: [entity_record_found, domain_record_found, repo_record_found, revenue_record_imported, bank_statement_imported, invoice_record_imported, tax_document_imported, asset_evidence_attached, professional_review_required, professional_review_completed]
