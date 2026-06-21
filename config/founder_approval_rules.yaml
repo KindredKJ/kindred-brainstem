@@ -1,0 +1,8 @@
+founder_approval_plane:
+  name: "BRAINSTEM Founder Approval Plane"
+  founder: "Kindred Jermaine Cox"
+  core_rule: "Explicit permission means direct founder approval from Kindred Jermaine Cox."
+  internal_only: true
+  default_network_bind: "127.0.0.1"
+  approval_required_for: [public_launch, revenue_launch, payment_activation, customer_charge, refund, payout_or_bank_action, external_contact, legal_filing, tax_filing, asset_transfer, IP_assignment, trademark_filing, blockchain_transaction, hardware_motion, private_sensor_access, privileged_system_change, deletion_of_lineage_history]
+  default_no_response_action: hold

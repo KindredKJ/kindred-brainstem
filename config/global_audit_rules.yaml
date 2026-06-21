@@ -1,0 +1,10 @@
+global_audit_engine:
+  name: "BRAINSTEM Global Asset + Company + Revenue Audit Engine"
+  abbreviation: GAE
+  status: native_core_engine
+  purpose: "Inventory, classify, verify, and report founder assets, companies, revenue streams, IP, domains, repos, liabilities, and tax-support records."
+  founder: "Kindred Jermaine Cox"
+  core_rule: "No asset, company, revenue, or ownership claim is treated as verified without evidence."
+  evidence_levels: {unclaimed: 0, founder_reported: 1, local_record_found: 2, public_record_found: 3, private_statement_imported: 4, reconciled: 5, professional_reviewed: 6}
+  asset_categories: [legal_entity, trade_name, domain, website, repository, software_project, product, model, dataset, trademark, patent, copyright, design, bank_account, payment_processor, invoice, contract, customer, revenue_stream, liability, loan, tax_record, grant, hardware, cloud_account, social_account, email_account, phone_number, blockchain_wallet, token_project]
+  hard_rules: ["Do not log secrets.", "Do not store raw bank credentials.", "Do not claim ownership without evidence.", "Do not file legal or tax documents.", "Do not move money.", "Do not contact agencies automatically.", "Do not treat public search results as complete.", "Flag private records required when public evidence is insufficient."]

@@ -1,0 +1,8 @@
+corporate_transition_engine:
+  name: "BRAINSTEM Corporate Transition Engine"
+  purpose: "Map how BRAINSTEM can become the public startup umbrella while preserving Kindred Labs lineage."
+  proposed_public_brand: BRAINSTEM
+  origin_lab: "Kindred Labs"
+  founder: "Kindred Jermaine Cox"
+  transition_modes: [brand_absorption, IP_assignment_plan, DBA_or_trade_name, new_entity, entity_name_change, holding_company_structure, asset_purchase_or_assignment, legal_merger_requires_attorney]
+  hard_rules: ["Do not claim legal consolidation until filed and verified.", "Do not claim IP assignment until assignment evidence exists.", "Do not erase Kindred Labs lineage.", "Do not assume all Kindred assets are legally owned by one entity.", "Do not ignore trademark risk for BRAINSTEM or BrainStem.", "Generate professional review packet before legal action."]

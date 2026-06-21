@@ -1,0 +1,3 @@
+from pydantic import BaseModel, Field
+class CorporateTransitionRecord(BaseModel):
+    transition_id:str='brainstem_transition_v1'; proposed_parent_brand:str='BRAINSTEM'; origin_lab:str='Kindred Labs'; absorbed_assets:list[str]=Field(default_factory=list); absorbed_entities:list[str]=Field(default_factory=list); transition_mode:str='brand_absorption'; required_evidence:list[str]=Field(default_factory=lambda:['legal review','IP assignment evidence','trademark review']); risks:list[str]=Field(default_factory=lambda:['professional_review_needed','trademark_risk']); professional_review_required:bool=True; next_actions:list[str]=Field(default_factory=lambda:['generate legal review packet','collect ownership evidence']); record_hash:str=''

@@ -1,0 +1,23 @@
+result_only_doctrine:
+  name: "BRAINSTEM Result-Only Doctrine"
+  core_rule: "BRAINSTEM success is measured only by verified results, not plans, promises, or generated text."
+  result_levels:
+    0: idea
+    1: plan
+    2: artifact_generated
+    3: local_execution_completed
+    4: local_result_verified
+    5: live_accessible_result
+    6: human_used_result
+    7: paid_result
+    8: repeated_paid_result
+    9: scalable_verified_result
+    10: durable_market_result
+  fake_success_forbidden:
+    - "Do not mark planned work as completed."
+    - "Do not mark launched without external access evidence."
+    - "Do not mark revenue made without payment evidence."
+    - "Do not mark tax-ready without professional review packet."
+    - "Do not mark legally consolidated without filed evidence."
+    - "Do not mark trademark-cleared without review evidence."
+    - "Do not mark blockchain anchored without transaction evidence."

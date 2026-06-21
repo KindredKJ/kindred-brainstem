@@ -21,5 +21,6 @@ dev = [
 brainstem = "brainstem.cli.app:app"
 
 [build-system]
-requires = ["setuptools>=68.0"]
-build-backend = "setuptools.build_meta"
+requires = []
+build-backend = "brainstem_build_backend"
+backend-path = ["."]
