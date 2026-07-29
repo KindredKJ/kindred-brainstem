@@ -53,3 +53,4 @@ dist/
 build/
 .next/
 *.egg-info/
+.kindred/

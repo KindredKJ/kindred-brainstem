@@ -1,0 +1,5 @@
+# DCML benchmarks
+
+The deterministic benchmark records success, verified-outcome rate, prediction error, Brier score, ECE, strategy regret, transfer lift, routing regret, unsupported claims, recovery, intervention, cost, latency, retention, and regressions. Tests prove a zero-success baseline becomes a successful held-out policy after signed approval, numerical training, canary, and signed promotion, persists after reopen, and returns to baseline after signed rollback.
+
+The advanced harness rejects incomplete runs and requires all 18 categories: continuity, retrieval, belief conflict and revision, prediction, calibration, causality, counterfactuals, strategy, approval gating, transfer, routing, recovery, rollback, forgetting resistance, unsupported-claim prevention, telemetry separation, and the runtime/model boundary. Baseline, pre-learning, post-learning, canary, and rollback are explicit phases. These local deterministic results are reproducible validation, not external operational proof.

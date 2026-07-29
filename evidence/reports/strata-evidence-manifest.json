@@ -1,0 +1,24 @@
+{
+  "schema_version": 1,
+  "truth_class": "INTERNALLY_OBSERVED",
+  "scope": "brainstem_protected_port_zero_client",
+  "implemented": [
+    "typed_contracts",
+    "fail_closed_gateway",
+    "mtls_configuration_gate",
+    "cryptographic_authorization_gate",
+    "durable_idempotency",
+    "transactional_outbox",
+    "append_only_transition_audit",
+    "diagnostic_api_and_cli"
+  ],
+  "externally_connected": false,
+  "provider_receipts": [],
+  "reconciled_results": [],
+  "external_verification": false,
+  "physical_execution": false,
+  "financial_execution": false,
+  "communications_delivery": false,
+  "simulation_used_as_proof": false,
+  "test_result": "39 passed"
+}

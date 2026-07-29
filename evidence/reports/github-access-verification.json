@@ -1,0 +1,27 @@
+{
+  "schema_version": 1,
+  "checked_at": "2026-07-29T09:13:56Z",
+  "execution_repository": "/workspace/kindred-brainstem",
+  "requested_repository": "KindredKJ/kindred-labs-superstructure",
+  "configured_git_remotes": [],
+  "github_cli": {
+    "status": "UNAVAILABLE",
+    "detail": "gh executable not installed"
+  },
+  "github_api": {
+    "status": "BLOCKED",
+    "detail": "HTTPS CONNECT tunnel rejected with HTTP 403 before GitHub response"
+  },
+  "git_https": {
+    "status": "BLOCKED",
+    "detail": "git ls-remote failed with CONNECT tunnel HTTP 403"
+  },
+  "authenticated_identity": null,
+  "read_permission": "UNVERIFIED",
+  "write_permission": "UNVERIFIED",
+  "branch_creation_permission": "UNVERIFIED",
+  "pull_request_permission": "UNVERIFIED",
+  "private_repository_access": "UNVERIFIED",
+  "credentials_exposed": false,
+  "truth_classification": "locally_executed_blocker_evidence"
+}
