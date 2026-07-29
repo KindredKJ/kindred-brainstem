@@ -129,3 +129,13 @@ def test_dcml_runtime_endpoints_delegate_to_native_model(tmp_path):
     assert status["migration_version"] == 2
     assert endpoint(app, "/dcml/experiences")() == []
     assert endpoint(app, "/dcml/datasets")() == []
+
+
+def test_strata_health_endpoint_is_truthful_and_model_owned_boundary_is_delegated(
+    tmp_path,
+):
+    app = build_app(service=service(tmp_path))
+    status = endpoint(app, "/strata/ports/health")()
+    assert status["status"] == "NOT_CONFIGURED"
+    assert status["production_simulation_enabled"] is False
+    assert "endpoint" in status["missing"]

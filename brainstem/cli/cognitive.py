@@ -29,6 +29,9 @@ learning_app = typer.Typer(help="Govern DCML learning proposals.")
 telemetry_app = typer.Typer(help="Inspect attached-instrument telemetry.")
 dcml_app = typer.Typer(help="Operate the native verified-experience DCML loop.")
 memory_app = typer.Typer(help="Inspect and consolidate governed memory.")
+strata_app = typer.Typer(help="Inspect the protected Strata Data Port client boundary.")
+strata_ports_app = typer.Typer(help="Operate BRAINSTEM-side Port Zero diagnostics.")
+strata_app.add_typer(strata_ports_app, name="ports")
 
 
 def _client() -> RuntimeClient:
@@ -172,6 +175,7 @@ def register(app: typer.Typer) -> None:
     app.add_typer(telemetry_app, name="telemetry")
     app.add_typer(dcml_app, name="dcml")
     app.add_typer(memory_app, name="memory")
+    app.add_typer(strata_app, name="strata")
 
     @app.command("shell")
     def shell() -> None:
@@ -593,3 +597,46 @@ def memory_conflicts() -> None:
 @memory_app.command("provenance")
 def memory_provenance(memory_id: str) -> None:
     _dcml_get(f"/memory/{memory_id}/provenance")
+
+
+@strata_ports_app.command("health")
+def strata_ports_health() -> None:
+    _dcml_get("/strata/ports/health")
+
+
+@strata_ports_app.command("audit")
+def strata_ports_audit() -> None:
+    _dcml_get("/strata/ports/audit")
+
+
+@strata_ports_app.command("trace")
+def strata_ports_trace(request_id: str) -> None:
+    _dcml_get(f"/strata/ports/trace/{request_id}")
+
+
+@strata_ports_app.command("list")
+def strata_ports_list() -> None:
+    console.print_json(
+        data={
+            "port_zero": "NOT_CONFIGURED",
+            "external_ports": [],
+            "authority": "superstructure registry unavailable",
+        }
+    )
+
+
+@strata_ports_app.command("doctor")
+def strata_ports_doctor() -> None:
+    strata_ports_health()
+
+
+@strata_ports_app.command("verify")
+def strata_ports_verify() -> None:
+    console.print(
+        "Network verification: BLOCKED until Port Zero mTLS and authority registry are configured"
+    )
+
+
+@strata_ports_app.command("routes")
+def strata_ports_routes() -> None:
+    console.print("Routes: BLOCKED (authoritative Port Zero registry unavailable)")

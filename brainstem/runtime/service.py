@@ -12,6 +12,7 @@ from brainstem.adapters.models import (
 )
 from brainstem.model import BrainstemModel
 from brainstem.runtime.store import StateStore
+from brainstem.strata.gateway import PortZeroGateway
 
 FOUNDER = "Kindred Jermaine Cox"
 
@@ -27,6 +28,7 @@ class RuntimeService:
             "codex": CodexAdapter(),
         }
         self.model = BrainstemModel(store, self.adapters)
+        self.strata = PortZeroGateway(store, self.model.dcml.authority)
 
     def health(self) -> dict[str, Any]:
         database = "HEALTHY"

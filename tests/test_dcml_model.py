@@ -207,6 +207,7 @@ def test_schema_migration_preserves_existing_session(tmp_path):
     assert reopened.query("SELECT version FROM schema_migrations") == [
         {"version": 1},
         {"version": 2},
+        {"version": 3},
     ]
 
 

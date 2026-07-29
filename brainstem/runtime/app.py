@@ -104,6 +104,31 @@ def build_app(
     def dcml_lineage() -> list[dict[str, Any]]:
         return runtime.model.dcml.list_records("lineage_records")
 
+    @app.get("/strata/ports/health")
+    def strata_ports_health() -> dict[str, Any]:
+        return runtime.strata.status()
+
+    @app.get("/strata/ports/audit")
+    def strata_ports_audit() -> list[dict[str, Any]]:
+        return runtime.store.query(
+            "SELECT sequence,request_id,tenant_id,prior_state,new_state,payload_hash,created_at FROM strata_boundary_events ORDER BY sequence"
+        )
+
+    @app.get("/strata/ports/trace/{request_id}")
+    def strata_ports_trace(request_id: str) -> dict[str, Any]:
+        requests = runtime.store.query(
+            "SELECT * FROM strata_boundary_requests WHERE request_id=?", (request_id,)
+        )
+        if not requests:
+            raise HTTPException(404, "Boundary request not found")
+        return {
+            "request": requests[0],
+            "events": runtime.store.query(
+                "SELECT * FROM strata_boundary_events WHERE request_id=? ORDER BY sequence",
+                (request_id,),
+            ),
+        }
+
     @app.get("/health")
     def health() -> dict[str, Any]:
         return runtime.health()

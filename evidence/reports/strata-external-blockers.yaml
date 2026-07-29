@@ -1,0 +1,21 @@
+status: BLOCKED
+dependency: authoritative Strata Data Port Zero and Unified Quad Runtime
+required_access:
+  - kindred-labs-superstructure repository
+  - Port Zero HTTPS endpoint
+  - trusted CA certificate
+  - client certificate and private key
+  - authoritative port registry and policy versions
+verified_attempt:
+  - GitHub HTTPS and API access rejected by environment CONNECT proxy with HTTP 403
+  - local client health probe reports all mTLS configuration absent
+production_impact: no external Strata request, provider operation, reconciliation, or return path is available
+simulation_used_as_proof: false
+providers:
+  communications: NOT_CONFIGURED
+  financial: NOT_CONFIGURED
+  energy: NOT_CONFIGURED
+  cloud: NOT_CONFIGURED
+  identity: NOT_CONFIGURED
+  emit_core: NOT_CONFIGURED
+  kindred_one: NOT_CONFIGURED

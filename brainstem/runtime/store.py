@@ -25,6 +25,7 @@ class StateStore:
         self._initialize()
         self._migrate_dcml()
         self._migrate_dcml_learning_loop()
+        self._migrate_strata_client_boundary()
 
     @contextmanager
     def connect(self) -> Iterator[sqlite3.Connection]:
@@ -196,6 +197,38 @@ class StateStore:
                 "INSERT OR IGNORE INTO schema_migrations VALUES (2, ?, ?)",
                 ("dcml_complete_learning_loop", now()),
             )
+
+    def _migrate_strata_client_boundary(self) -> None:
+        """Add the protected BRAINSTEM-to-Port-Zero client outbox."""
+        with self.connect() as db:
+            db.executescript("""
+            CREATE TABLE IF NOT EXISTS strata_boundary_requests (
+              request_id TEXT PRIMARY KEY, tenant_id TEXT NOT NULL,
+              idempotency_key TEXT NOT NULL UNIQUE, payload_hash TEXT NOT NULL,
+              state TEXT NOT NULL, response TEXT, created_at TEXT NOT NULL,
+              updated_at TEXT NOT NULL
+            );
+            CREATE TABLE IF NOT EXISTS strata_boundary_events (
+              sequence INTEGER PRIMARY KEY AUTOINCREMENT, request_id TEXT NOT NULL,
+              tenant_id TEXT NOT NULL, prior_state TEXT NOT NULL,
+              new_state TEXT NOT NULL, payload_hash TEXT NOT NULL,
+              payload TEXT NOT NULL, created_at TEXT NOT NULL,
+              FOREIGN KEY(request_id) REFERENCES strata_boundary_requests(request_id)
+            );
+            CREATE TABLE IF NOT EXISTS strata_boundary_outbox (
+              id INTEGER PRIMARY KEY AUTOINCREMENT, request_id TEXT NOT NULL,
+              payload_reference TEXT NOT NULL, payload_hash TEXT NOT NULL,
+              published_at TEXT, attempts INTEGER NOT NULL DEFAULT 0,
+              last_error TEXT, created_at TEXT NOT NULL,
+              FOREIGN KEY(request_id) REFERENCES strata_boundary_requests(request_id)
+            );
+            CREATE TABLE IF NOT EXISTS strata_boundary_dead_letters (
+              id INTEGER PRIMARY KEY AUTOINCREMENT, request_id TEXT NOT NULL,
+              reason TEXT NOT NULL, attempts INTEGER NOT NULL,
+              created_at TEXT NOT NULL
+            );
+            INSERT OR IGNORE INTO schema_migrations VALUES (3, 'brainstem_port_zero_client_boundary', datetime('now'));
+            """)
 
     def event(self, kind: str, payload: dict[str, Any]) -> str:
         event_id = f"KEVT-{uuid.uuid4().hex[:12].upper()}"
