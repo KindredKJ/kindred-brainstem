@@ -37,6 +37,11 @@ class LearningEvaluation(BaseModel):
     evidence: list[str]
 
 
+class DCMLCycleRequest(BaseModel):
+    session_id: str
+    message: str
+
+
 def build_app(
     database: Path | None = None, service: RuntimeService | None = None
 ) -> FastAPI:
@@ -46,6 +51,58 @@ def build_app(
     runtime = service or RuntimeService(StateStore(db))
     app = FastAPI(title="Kindred BRAINSTEM Runtime", version="0.1.0-alpha")
     app.state.runtime = runtime
+
+    @app.get("/dcml/status")
+    def dcml_status() -> dict[str, Any]:
+        return runtime.model.dcml.status()
+
+    @app.post("/dcml/cycle")
+    def dcml_cycle(request: DCMLCycleRequest) -> dict[str, Any]:
+        return runtime.chat(request.session_id, request.message)
+
+    @app.get("/dcml/experiences")
+    def dcml_experiences() -> list[dict[str, Any]]:
+        return runtime.model.dcml.list_records("experiences_v2")
+
+    @app.get("/dcml/evaluations")
+    def dcml_evaluations() -> list[dict[str, Any]]:
+        return runtime.model.dcml.list_records("outcome_evaluations")
+
+    @app.get("/dcml/learning")
+    def dcml_learning() -> list[dict[str, Any]]:
+        return runtime.model.learning()
+
+    @app.get("/dcml/datasets")
+    def dcml_datasets() -> list[dict[str, Any]]:
+        return runtime.model.dcml.list_records("datasets")
+
+    @app.get("/dcml/training")
+    def dcml_training() -> list[dict[str, Any]]:
+        return runtime.model.dcml.list_records("training_runs")
+
+    @app.get("/dcml/checkpoints")
+    def dcml_checkpoints() -> list[dict[str, Any]]:
+        return runtime.model.dcml.list_records("policy_parameters")
+
+    @app.get("/dcml/benchmarks")
+    def dcml_benchmarks() -> list[dict[str, Any]]:
+        return runtime.model.dcml.list_records("benchmark_runs")
+
+    @app.get("/dcml/calibration")
+    def dcml_calibration() -> dict[str, Any]:
+        return runtime.model.dcml.calibrate()
+
+    @app.post("/dcml/consolidation")
+    def dcml_consolidation() -> dict[str, str]:
+        return {"consolidation_id": runtime.model.dcml.consolidate()}
+
+    @app.get("/dcml/skills")
+    def dcml_skills() -> list[dict[str, Any]]:
+        return runtime.model.skills()
+
+    @app.get("/dcml/lineage")
+    def dcml_lineage() -> list[dict[str, Any]]:
+        return runtime.model.dcml.list_records("lineage_records")
 
     @app.get("/health")
     def health() -> dict[str, Any]:
@@ -215,6 +272,25 @@ def build_app(
             return runtime.model.rollback(checkpoint_id).model_dump()
         except KeyError as exc:
             raise HTTPException(404, "Checkpoint not found") from exc
+
+    @app.get("/memory/consolidations")
+    def memory_consolidations() -> list[dict[str, Any]]:
+        return runtime.model.dcml.list_records("consolidation_runs")
+
+    @app.get("/memory/conflicts")
+    def memory_conflicts() -> list[dict[str, Any]]:
+        return runtime.model.store.query(
+            "SELECT * FROM beliefs WHERE status='CONFLICTED'"
+        )
+
+    @app.get("/memory/{memory_id}/provenance")
+    def memory_provenance(memory_id: str) -> dict[str, Any]:
+        rows = runtime.model.store.query(
+            "SELECT * FROM memory WHERE id=?", (memory_id,)
+        )
+        if not rows:
+            raise HTTPException(404, "Memory not found")
+        return rows[0]
 
     @app.get("/missions")
     def missions() -> dict[str, Any]:

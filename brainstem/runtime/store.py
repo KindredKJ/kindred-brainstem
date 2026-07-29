@@ -24,6 +24,7 @@ class StateStore:
         self.audit_path = audit_path or self.path.with_name("events.jsonl")
         self._initialize()
         self._migrate_dcml()
+        self._migrate_dcml_learning_loop()
 
     @contextmanager
     def connect(self) -> Iterator[sqlite3.Connection]:
@@ -157,6 +158,44 @@ class StateStore:
     def query(self, sql: str, parameters: tuple[Any, ...] = ()) -> list[dict[str, Any]]:
         with self.connect() as db:
             return [dict(row) for row in db.execute(sql, parameters).fetchall()]
+
+    def _migrate_dcml_learning_loop(self) -> None:
+        """Add DCML closed-loop records without changing v1 tables."""
+        tables = (
+            "verifications",
+            "experiences_v2",
+            "outcome_evaluations",
+            "credit_assignments",
+            "datasets",
+            "replay_records",
+            "curricula",
+            "concepts",
+            "causal_hypotheses",
+            "counterfactual_decisions",
+            "model_performance_profiles",
+            "calibration_records",
+            "metacognitive_reviews",
+            "policy_parameters",
+            "training_runs",
+            "policy_checkpoints",
+            "canary_results",
+            "benchmark_runs",
+            "regressions",
+            "signed_approvals",
+            "lineage_records",
+            "consolidation_runs",
+            "missions_v2",
+        )
+        with self.connect() as db:
+            for table in tables:
+                db.execute(f"""CREATE TABLE IF NOT EXISTS {table} (
+                    id TEXT PRIMARY KEY, status TEXT NOT NULL, payload TEXT NOT NULL,
+                    content_hash TEXT NOT NULL, created_at TEXT NOT NULL, updated_at TEXT NOT NULL
+                )""")
+            db.execute(
+                "INSERT OR IGNORE INTO schema_migrations VALUES (2, ?, ?)",
+                ("dcml_complete_learning_loop", now()),
+            )
 
     def event(self, kind: str, payload: dict[str, Any]) -> str:
         event_id = f"KEVT-{uuid.uuid4().hex[:12].upper()}"

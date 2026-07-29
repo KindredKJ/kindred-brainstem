@@ -204,7 +204,10 @@ def test_schema_migration_preserves_existing_session(tmp_path):
     session = first.create_session("legacy")
     reopened = StateStore(path)
     assert reopened.session(session["id"])["model"] == "legacy"
-    assert reopened.query("SELECT version FROM schema_migrations") == [{"version": 1}]
+    assert reopened.query("SELECT version FROM schema_migrations") == [
+        {"version": 1},
+        {"version": 2},
+    ]
 
 
 def test_codex_ndjson_is_normalized_and_raw_events_are_telemetry(tmp_path):

@@ -120,3 +120,12 @@ def test_backup_and_restore_preserve_canonical_session(tmp_path):
         restored.query("SELECT COUNT(*) AS count FROM learning_proposals")[0]["count"]
         == 1
     )
+
+
+def test_dcml_runtime_endpoints_delegate_to_native_model(tmp_path):
+    app = build_app(service=service(tmp_path))
+    status = endpoint(app, "/dcml/status")()
+    assert status["foundation_model_weights"] == "NOT_TRAINED"
+    assert status["migration_version"] == 2
+    assert endpoint(app, "/dcml/experiences")() == []
+    assert endpoint(app, "/dcml/datasets")() == []

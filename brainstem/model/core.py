@@ -7,6 +7,7 @@ import uuid
 from typing import Any
 
 from brainstem.adapters.models import ModelAdapter
+from brainstem.model.dcml import DCMLLearning
 from brainstem.model.schemas import (
     Belief,
     CognitiveResult,
@@ -54,6 +55,7 @@ class BrainstemModel:
         self.store = store
         self.instruments = instruments or {}
         self._ensure_state()
+        self.dcml = DCMLLearning(store)
 
     def _ensure_state(self) -> None:
         if self.store.query(
@@ -245,6 +247,19 @@ class BrainstemModel:
             )
             for row in active
         ]
+        policy_choice = self.dcml.select_strategy({"text": input_text})
+        if policy_choice == "verified_procedure":
+            candidates.append(
+                StrategyCandidate(
+                    id="KSTR-DCML-POLICY",
+                    name="verified_procedure",
+                    description="Numerically trained DCML policy selected the verified procedure.",
+                    expected_utility=0.95,
+                    risk=0.1,
+                    confidence=0.9,
+                    source="dcml_policy",
+                )
+            )
         candidates.append(
             StrategyCandidate(
                 id="KSTR-BASELINE",

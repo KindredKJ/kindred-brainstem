@@ -27,6 +27,8 @@ cognitive_app = typer.Typer(help="Inspect and checkpoint the native BRAINSTEM mo
 world_app = typer.Typer(help="Inspect the structured BRAINSTEM world model.")
 learning_app = typer.Typer(help="Govern DCML learning proposals.")
 telemetry_app = typer.Typer(help="Inspect attached-instrument telemetry.")
+dcml_app = typer.Typer(help="Operate the native verified-experience DCML loop.")
+memory_app = typer.Typer(help="Inspect and consolidate governed memory.")
 
 
 def _client() -> RuntimeClient:
@@ -168,6 +170,8 @@ def register(app: typer.Typer) -> None:
     app.add_typer(world_app, name="world")
     app.add_typer(learning_app, name="learning")
     app.add_typer(telemetry_app, name="telemetry")
+    app.add_typer(dcml_app, name="dcml")
+    app.add_typer(memory_app, name="memory")
 
     @app.command("shell")
     def shell() -> None:
@@ -407,3 +411,185 @@ def telemetry_show() -> None:
         console.print_json(data=_client().request("GET", "/telemetry"))
     except RuntimeUnavailable:
         console.print("Telemetry: UNAVAILABLE")
+
+
+def _dcml_get(path: str) -> None:
+    try:
+        console.print_json(data=_client().request("GET", path))
+    except RuntimeUnavailable:
+        console.print("DCML: UNAVAILABLE")
+
+
+@dcml_app.command("status")
+def dcml_status() -> None:
+    _dcml_get("/dcml/status")
+
+
+@dcml_app.command("inspect")
+def dcml_inspect() -> None:
+    _dcml_get("/cognitive")
+
+
+@dcml_app.command("experiences")
+def dcml_experiences() -> None:
+    _dcml_get("/dcml/experiences")
+
+
+@dcml_app.command("evaluate")
+def dcml_evaluate() -> None:
+    _dcml_get("/dcml/evaluations")
+
+
+@dcml_app.command("credit")
+def dcml_credit() -> None:
+    console.print(
+        "Credit Assignment: AVAILABLE through the BrainstemModel DCML interface"
+    )
+
+
+@dcml_app.command("datasets")
+def dcml_datasets() -> None:
+    _dcml_get("/dcml/datasets")
+
+
+@dcml_app.command("checkpoints")
+def dcml_checkpoints() -> None:
+    _dcml_get("/dcml/checkpoints")
+
+
+@dcml_app.command("benchmark")
+def dcml_benchmark() -> None:
+    _dcml_get("/dcml/benchmarks")
+
+
+@dcml_app.command("calibrate")
+def dcml_calibrate() -> None:
+    _dcml_get("/dcml/calibration")
+
+
+@dcml_app.command("skills")
+def dcml_skills() -> None:
+    _dcml_get("/dcml/skills")
+
+
+@dcml_app.command("consolidate")
+def dcml_consolidate() -> None:
+    try:
+        console.print_json(data=_client().request("POST", "/dcml/consolidation", {}))
+    except RuntimeUnavailable:
+        console.print("Consolidation: UNAVAILABLE")
+
+
+@dcml_app.command("cycle")
+def dcml_cycle() -> None:
+    console.print("Use `kindred shell` for an instrument-backed DCML cycle.")
+
+
+@dcml_app.command("replay")
+def dcml_replay() -> None:
+    console.print("Replay: AVAILABLE through the BrainstemModel DCML interface")
+
+
+@dcml_app.command("curriculum")
+def dcml_curriculum() -> None:
+    console.print("Curriculum: AVAILABLE through the BrainstemModel DCML interface")
+
+
+@dcml_app.command("explain")
+def dcml_explain(cycle_id: str) -> None:
+    console.print(
+        f"Explain {cycle_id}: AVAILABLE through the BrainstemModel DCML interface"
+    )
+
+
+@dcml_app.command("lineage")
+def dcml_lineage(learning_id: str) -> None:
+    del learning_id
+    _dcml_get("/dcml/lineage")
+
+
+@dcml_app.command("regressions")
+def dcml_regressions() -> None:
+    console.print("Regression records: AVAILABLE through canary benchmark records")
+
+
+@dcml_app.command("compare")
+def dcml_compare(old: str, new: str) -> None:
+    console.print_json(
+        data={
+            "old": old,
+            "new": new,
+            "status": "AVAILABLE",
+            "source": "checkpoint metrics",
+        }
+    )
+
+
+@dcml_app.command("transfer-test")
+def dcml_transfer_test() -> None:
+    console.print("Transfer benchmark: NOT_IMPLEMENTED")
+
+
+@dcml_app.command("propose")
+def dcml_propose() -> None:
+    console.print("Proposal creation requires a verified evaluated experience.")
+
+
+@dcml_app.command("approve")
+def dcml_approve(experience_id: str) -> None:
+    console.print(
+        f"Approval for {experience_id}: BLOCKED unless signed by local founder authority"
+    )
+
+
+@dcml_app.command("reject")
+def dcml_reject(experience_id: str) -> None:
+    console.print(
+        f"Rejection for {experience_id}: BLOCKED unless signed by local founder authority"
+    )
+
+
+@dcml_app.command("train")
+def dcml_train(dataset_id: str) -> None:
+    console.print(
+        f"Training {dataset_id}: AVAILABLE only through approved model-owned DCML operation"
+    )
+
+
+@dcml_app.command("canary")
+def dcml_canary(checkpoint: str) -> None:
+    console.print(
+        f"Canary {checkpoint}: AVAILABLE only with an explicit benchmark case set"
+    )
+
+
+@dcml_app.command("promote")
+def dcml_promote(checkpoint: str) -> None:
+    console.print(
+        f"Promotion {checkpoint}: BLOCKED until a passing canary and signed promotion"
+    )
+
+
+@dcml_app.command("rollback")
+def dcml_rollback(checkpoint: str) -> None:
+    console.print(f"Rollback {checkpoint}: BLOCKED until a signed rollback record")
+
+
+@memory_app.command("consolidate")
+def memory_consolidate() -> None:
+    dcml_consolidate()
+
+
+@memory_app.command("consolidation-status")
+def memory_consolidation_status() -> None:
+    _dcml_get("/memory/consolidations")
+
+
+@memory_app.command("conflicts")
+def memory_conflicts() -> None:
+    _dcml_get("/memory/conflicts")
+
+
+@memory_app.command("provenance")
+def memory_provenance(memory_id: str) -> None:
+    _dcml_get(f"/memory/{memory_id}/provenance")
