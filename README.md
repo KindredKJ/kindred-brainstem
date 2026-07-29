@@ -12,7 +12,7 @@ candidate learning state and production modification remains blocked; the CLI
 does not silently retrain an attached model.
 
 ## What BRAINSTEM is
-BRAINSTEM is a local-first, evidence-ledgered operating layer for converting signals into verified infrastructure results. It does not count plans, generated text, or hype as success.
+BRAINSTEM is a persistent cognitive model whose native DCML mechanism converts signals into governed, evidence-ledgered cognitive and infrastructure results. The local runtime serves the model; it does not define BRAINSTEM's intelligence. It does not count plans, generated text, or hype as success.
 
 ## Existing repo status
 The repo preserves the Kindred Revenue Stack Engine (KRSE) and extends the doctrine into a result-only reality execution, audit, approval, memory, backprop, PlugCore, and corporate transition layer.

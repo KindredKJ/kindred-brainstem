@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import shutil
 import subprocess
 
@@ -53,4 +54,33 @@ class CodexAdapter(ModelAdapter):
             raise RuntimeError(
                 f"Codex exited {result.returncode}: {result.stderr.strip()}"
             )
-        return Generation(result.stdout, "codex", {})
+        events = []
+        responses = []
+        usage: dict[str, int] = {}
+        for line in result.stdout.splitlines():
+            try:
+                event = json.loads(line)
+            except json.JSONDecodeError:
+                events.append({"type": "unparsed", "text": line})
+                continue
+            events.append(event)
+            item = event.get("item", event)
+            if item.get("type") in {"agent_message", "assistant_message"}:
+                text = item.get("text") or item.get("content")
+                if isinstance(text, str):
+                    responses.append(text)
+            if event.get("type") == "turn.completed" and isinstance(
+                event.get("usage"), dict
+            ):
+                usage = {
+                    key: int(value)
+                    for key, value in event["usage"].items()
+                    if isinstance(value, int)
+                }
+        if not responses:
+            raise RuntimeError(
+                "Codex returned no normalized assistant response; raw events retained as telemetry"
+            )
+        return Generation(
+            "\n".join(responses), "codex", usage, {"execution_events": events}
+        )

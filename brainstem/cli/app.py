@@ -18,7 +18,7 @@ from rich.table import Table
 from brainstem.cli.cognitive import _client, register, render_shell_status, run_shell
 
 app = typer.Typer(
-    help="Kindred Sovereign Cognitive Runtime and Model Adaptation Interface.",
+    help="Kindred BRAINSTEM cognitive model and serving-runtime interface.",
     invoke_without_command=True,
 )
 console = Console()
@@ -103,10 +103,7 @@ def safe_git_status() -> str:
 @app.command()
 def health() -> None:
     """Check the local BRAINSTEM installation."""
-    console.print("[bold green]BRAINSTEM health: OK[/bold green]")
-    console.print("CLI: integrated")
-    console.print("Doctrine: result-only")
-    console.print("External side effects: disabled by default")
+    render_shell_status()
 
 
 @app.command()

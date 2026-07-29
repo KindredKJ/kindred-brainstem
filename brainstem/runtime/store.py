@@ -5,9 +5,10 @@ from __future__ import annotations
 import json
 import sqlite3
 import uuid
+from contextlib import contextmanager
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any
+from typing import Any, Iterator
 
 
 def now() -> str:
@@ -22,13 +23,22 @@ class StateStore:
         self.path.parent.mkdir(parents=True, exist_ok=True)
         self.audit_path = audit_path or self.path.with_name("events.jsonl")
         self._initialize()
+        self._migrate_dcml()
 
-    def connect(self) -> sqlite3.Connection:
+    @contextmanager
+    def connect(self) -> Iterator[sqlite3.Connection]:
         connection = sqlite3.connect(self.path)
         connection.row_factory = sqlite3.Row
         connection.execute("PRAGMA foreign_keys=ON")
         connection.execute("PRAGMA journal_mode=WAL")
-        return connection
+        try:
+            yield connection
+            connection.commit()
+        except Exception:
+            connection.rollback()
+            raise
+        finally:
+            connection.close()
 
     def _initialize(self) -> None:
         with self.connect() as db:
@@ -64,6 +74,89 @@ class StateStore:
               founder TEXT NOT NULL, created_at TEXT NOT NULL
             );
             """)
+
+    def _migrate_dcml(self) -> None:
+        """Apply additive DCML schema v1 without altering legacy session data."""
+        with self.connect() as db:
+            db.executescript("""
+            CREATE TABLE IF NOT EXISTS schema_migrations (
+              version INTEGER PRIMARY KEY, name TEXT NOT NULL, applied_at TEXT NOT NULL
+            );
+            CREATE TABLE IF NOT EXISTS cognitive_states (
+              id TEXT PRIMARY KEY, schema_version INTEGER NOT NULL, revision INTEGER NOT NULL,
+              payload TEXT NOT NULL, created_at TEXT NOT NULL, updated_at TEXT NOT NULL
+            );
+            CREATE TABLE IF NOT EXISTS beliefs (
+              id TEXT PRIMARY KEY, subject TEXT NOT NULL, predicate TEXT NOT NULL,
+              object TEXT NOT NULL, confidence REAL NOT NULL, provenance TEXT NOT NULL,
+              status TEXT NOT NULL, revision INTEGER NOT NULL, created_at TEXT NOT NULL
+            );
+            CREATE TABLE IF NOT EXISTS world_nodes (
+              id TEXT PRIMARY KEY, kind TEXT NOT NULL, label TEXT NOT NULL, state TEXT NOT NULL,
+              confidence REAL NOT NULL, provenance TEXT NOT NULL, revision INTEGER NOT NULL,
+              created_at TEXT NOT NULL
+            );
+            CREATE TABLE IF NOT EXISTS world_relationships (
+              id TEXT PRIMARY KEY, source_id TEXT NOT NULL, target_id TEXT NOT NULL,
+              kind TEXT NOT NULL, causal_strength REAL, confidence REAL NOT NULL,
+              provenance TEXT NOT NULL, revision INTEGER NOT NULL, created_at TEXT NOT NULL
+            );
+            CREATE TABLE IF NOT EXISTS experiences (
+              id TEXT PRIMARY KEY, session_id TEXT, input TEXT NOT NULL, context TEXT NOT NULL,
+              result TEXT, approved_for_training INTEGER NOT NULL DEFAULT 0,
+              created_at TEXT NOT NULL
+            );
+            CREATE TABLE IF NOT EXISTS predictions (
+              id TEXT PRIMARY KEY, hypothesis TEXT NOT NULL, expected_outcome TEXT NOT NULL,
+              probability REAL NOT NULL, strategy_id TEXT, observed_outcome TEXT,
+              prediction_error REAL, created_at TEXT NOT NULL
+            );
+            CREATE TABLE IF NOT EXISTS counterfactuals (
+              id TEXT PRIMARY KEY, prediction_id TEXT NOT NULL, intervention TEXT NOT NULL,
+              expected_outcome TEXT NOT NULL, probability REAL NOT NULL, created_at TEXT NOT NULL
+            );
+            CREATE TABLE IF NOT EXISTS evaluations (
+              id TEXT PRIMARY KEY, experience_id TEXT, prediction_id TEXT, success REAL NOT NULL,
+              confidence_calibration REAL NOT NULL, failures TEXT NOT NULL,
+              missing_information TEXT NOT NULL, created_at TEXT NOT NULL
+            );
+            CREATE TABLE IF NOT EXISTS strategies (
+              id TEXT PRIMARY KEY, name TEXT NOT NULL, description TEXT NOT NULL,
+              expected_utility REAL NOT NULL, risk REAL NOT NULL, confidence REAL NOT NULL,
+              source TEXT NOT NULL, status TEXT NOT NULL, learning_id TEXT, revision INTEGER NOT NULL,
+              created_at TEXT NOT NULL
+            );
+            CREATE TABLE IF NOT EXISTS skills (
+              id TEXT PRIMARY KEY, name TEXT NOT NULL, procedure TEXT NOT NULL,
+              status TEXT NOT NULL, provenance TEXT NOT NULL, revision INTEGER NOT NULL,
+              created_at TEXT NOT NULL
+            );
+            CREATE TABLE IF NOT EXISTS learning_proposals (
+              id TEXT PRIMARY KEY, kind TEXT NOT NULL, payload TEXT NOT NULL,
+              status TEXT NOT NULL, consequential INTEGER NOT NULL,
+              provenance TEXT NOT NULL, evaluation TEXT, approval_id TEXT,
+              supersedes TEXT, revision INTEGER NOT NULL, created_at TEXT NOT NULL,
+              updated_at TEXT NOT NULL
+            );
+            CREATE TABLE IF NOT EXISTS model_checkpoints (
+              id TEXT PRIMARY KEY, state_revision INTEGER NOT NULL, snapshot TEXT NOT NULL,
+              parameter_checkpoint TEXT, created_at TEXT NOT NULL
+            );
+            CREATE TABLE IF NOT EXISTS telemetry (
+              id TEXT PRIMARY KEY, session_id TEXT, capability TEXT NOT NULL,
+              status TEXT NOT NULL, commands TEXT NOT NULL, errors TEXT NOT NULL,
+              usage TEXT NOT NULL, execution_events TEXT NOT NULL, created_at TEXT NOT NULL
+            );
+            INSERT OR IGNORE INTO schema_migrations VALUES (1, 'native_dcml_foundation', datetime('now'));
+            """)
+
+    def execute(self, sql: str, parameters: tuple[Any, ...] = ()) -> None:
+        with self.connect() as db:
+            db.execute(sql, parameters)
+
+    def query(self, sql: str, parameters: tuple[Any, ...] = ()) -> list[dict[str, Any]]:
+        with self.connect() as db:
+            return [dict(row) for row in db.execute(sql, parameters).fetchall()]
 
     def event(self, kind: str, payload: dict[str, Any]) -> str:
         event_id = f"KEVT-{uuid.uuid4().hex[:12].upper()}"

@@ -1,10 +1,11 @@
-# Kindred BRAINSTEM architecture
+# Kindred BRAINSTEM serving architecture
 
 ```text
 kindred (Typer client)
   -> HTTP on 127.0.0.1:8280
-     -> FastAPI BRAINSTEM runtime
-        -> identity and policy orchestration
+     -> FastAPI serving runtime
+        -> native BrainstemModel / DCML cognition
+        -> transport and session orchestration
         -> SQLite canonical state
         -> JSONL append-only audit export
         -> provider-independent adapter registry
@@ -13,7 +14,7 @@ kindred (Typer client)
            -> explicitly configured OpenAI-compatible provider
 ```
 
-BRAINSTEM, rather than an adapter, creates the session, assembles conversation history, chooses the explicitly selected route, records events and evidence, and creates candidate learning proposals. Switching adapters changes only `sessions.model`; history remains owned by the session.
+The native BRAINSTEM model, rather than the serving runtime or an adapter, creates the session, assembles conversation history, chooses the explicitly selected route, records events and evidence, and creates candidate learning proposals. Switching adapters changes only `sessions.model`; history remains owned by the session.
 
 ## State boundaries
 

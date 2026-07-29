@@ -28,6 +28,15 @@ class SwitchRequest(BaseModel):
     model: str
 
 
+class LearningDecision(BaseModel):
+    founder: str
+
+
+class LearningEvaluation(BaseModel):
+    score: float
+    evidence: list[str]
+
+
 def build_app(
     database: Path | None = None, service: RuntimeService | None = None
 ) -> FastAPI:
@@ -101,11 +110,64 @@ def build_app(
 
     @app.get("/learning")
     def learning() -> list[dict[str, Any]]:
-        with runtime.store.connect() as dbh:
-            return [
-                dict(row)
-                for row in dbh.execute("SELECT * FROM learning ORDER BY created_at")
-            ]
+        return runtime.model.learning()
+
+    @app.get("/learning/{learning_id}")
+    def learning_item(learning_id: str) -> dict[str, Any]:
+        rows = runtime.model.learning(learning_id)
+        if not rows:
+            raise HTTPException(404, "Learning proposal not found")
+        return rows[0]
+
+    @app.post("/learning/{learning_id}/evaluate")
+    def learning_evaluate(
+        learning_id: str, request: LearningEvaluation
+    ) -> dict[str, Any]:
+        try:
+            return runtime.model.evaluate_learning(
+                learning_id, request.score, request.evidence
+            )
+        except (KeyError, ValueError) as exc:
+            raise HTTPException(409, str(exc)) from exc
+
+    @app.post("/learning/{learning_id}/promote")
+    def learning_promote(learning_id: str) -> dict[str, Any]:
+        try:
+            return runtime.model.promote_learning(learning_id)
+        except (KeyError, ValueError) as exc:
+            raise HTTPException(409, str(exc)) from exc
+
+    @app.post("/learning/{learning_id}/activate")
+    def learning_activate(learning_id: str) -> dict[str, Any]:
+        try:
+            return runtime.model.activate_learning(learning_id)
+        except (KeyError, ValueError) as exc:
+            raise HTTPException(409, str(exc)) from exc
+
+    @app.post("/learning/{learning_id}/rollback")
+    def learning_rollback(learning_id: str) -> dict[str, Any]:
+        try:
+            return runtime.model.rollback_learning(learning_id)
+        except (KeyError, ValueError) as exc:
+            raise HTTPException(409, str(exc)) from exc
+
+    @app.post("/learning/{learning_id}/approve")
+    def learning_approve(learning_id: str, request: LearningDecision) -> dict[str, Any]:
+        try:
+            return runtime.model.approve_learning(learning_id, request.founder)
+        except (KeyError, ValueError) as exc:
+            raise HTTPException(409, str(exc)) from exc
+        except PermissionError as exc:
+            raise HTTPException(403, str(exc)) from exc
+
+    @app.post("/learning/{learning_id}/reject")
+    def learning_reject(learning_id: str, request: LearningDecision) -> dict[str, Any]:
+        try:
+            return runtime.model.reject_learning(learning_id, request.founder)
+        except (KeyError, ValueError) as exc:
+            raise HTTPException(409, str(exc)) from exc
+        except PermissionError as exc:
+            raise HTTPException(403, str(exc)) from exc
 
     @app.get("/memory")
     def memory() -> list[dict[str, Any]]:
@@ -117,7 +179,42 @@ def build_app(
 
     @app.get("/world")
     def world() -> dict[str, Any]:
-        return {"status": "NOT_IMPLEMENTED", "version": None, "nodes": []}
+        return runtime.model.world()
+
+    @app.get("/cognitive")
+    def cognitive() -> dict[str, Any]:
+        return {
+            "status": "AVAILABLE",
+            "trained_weights": "NOT_TRAINED",
+            "state": runtime.model.inspect_state().model_dump(),
+        }
+
+    @app.get("/beliefs")
+    def beliefs() -> list[dict[str, Any]]:
+        return runtime.model.beliefs()
+
+    @app.get("/strategies")
+    def strategies() -> list[dict[str, Any]]:
+        return runtime.model.strategies()
+
+    @app.get("/skills")
+    def skills() -> list[dict[str, Any]]:
+        return runtime.model.skills()
+
+    @app.get("/telemetry")
+    def telemetry() -> list[dict[str, Any]]:
+        return runtime.model.telemetry()
+
+    @app.post("/cognitive/checkpoint")
+    def checkpoint() -> dict[str, str]:
+        return {"checkpoint_id": runtime.model.checkpoint()}
+
+    @app.post("/cognitive/rollback/{checkpoint_id}")
+    def rollback(checkpoint_id: str) -> dict[str, Any]:
+        try:
+            return runtime.model.rollback(checkpoint_id).model_dump()
+        except KeyError as exc:
+            raise HTTPException(404, "Checkpoint not found") from exc
 
     @app.get("/missions")
     def missions() -> dict[str, Any]:

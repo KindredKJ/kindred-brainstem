@@ -44,3 +44,8 @@ This vertical slice separates the CLI client from a loopback FastAPI runtime, es
 3. Define the founder authentication mechanism before dashboard or remote work.
 4. Approve memory conflict policy and the promotion state machine before canonical memory writes.
 5. Decide whether model response bodies may be retained as evidence; this slice records metadata only.
+
+
+## Native model correction
+
+BRAINSTEM is now represented by `BrainstemModel`; DCML is fused into that model. The FastAPI runtime serves it and delegates cognition through the model interface. Structured cognitive state, beliefs, world nodes and causal relationships, experiences, predictions, counterfactuals, evaluations, strategies, skills, learning proposals, checkpoints, and telemetry use additive SQLite migration v1. No foundation-model parameter training occurred; trained-weight status is `NOT_TRAINED`.

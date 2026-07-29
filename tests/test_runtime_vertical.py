@@ -102,7 +102,7 @@ def test_authority_and_unimplemented_surfaces_are_truthful(tmp_path):
     identity = endpoint(app, "/identity")()
     assert identity["founder"] == "Kindred Jermaine Cox"
     assert identity["license"] == "LicenseRef-Kindred-Proprietary"
-    assert endpoint(app, "/world")()["status"] == "NOT_IMPLEMENTED"
+    assert endpoint(app, "/world")()["schema_version"] == 1
     assert endpoint(app, "/missions")()["status"] == "NOT_IMPLEMENTED"
 
 
@@ -116,4 +116,7 @@ def test_backup_and_restore_preserve_canonical_session(tmp_path):
     )
     assert restored.session(session["id"])["id"] == session["id"]
     assert restored.history(session["id"])[0]["content"] == "persist through backup"
-    assert restored.counts()["learning"] == 1
+    assert (
+        restored.query("SELECT COUNT(*) AS count FROM learning_proposals")[0]["count"]
+        == 1
+    )

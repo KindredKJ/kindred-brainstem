@@ -23,6 +23,10 @@ runtime_app = typer.Typer(help="Start, stop, and probe the local runtime service
 session_app = typer.Typer(help="Inspect persistent runtime sessions.")
 learn_app = typer.Typer(help="Inspect candidate-first learning proposals.")
 models_app = typer.Typer(help="Probe configured model adapters.")
+cognitive_app = typer.Typer(help="Inspect and checkpoint the native BRAINSTEM model.")
+world_app = typer.Typer(help="Inspect the structured BRAINSTEM world model.")
+learning_app = typer.Typer(help="Govern DCML learning proposals.")
+telemetry_app = typer.Typer(help="Inspect attached-instrument telemetry.")
 
 
 def _client() -> RuntimeClient:
@@ -160,6 +164,10 @@ def register(app: typer.Typer) -> None:
     app.add_typer(session_app, name="session")
     app.add_typer(learn_app, name="learn")
     app.add_typer(models_app, name="models")
+    app.add_typer(cognitive_app, name="cognitive")
+    app.add_typer(world_app, name="world")
+    app.add_typer(learning_app, name="learning")
+    app.add_typer(telemetry_app, name="telemetry")
 
     @app.command("shell")
     def shell() -> None:
@@ -198,6 +206,18 @@ def register(app: typer.Typer) -> None:
         except (RuntimeError, RuntimeUnavailable) as exc:
             console.print(f"[red]{exc}[/red]")
             raise typer.Exit(1) from exc
+
+    @app.command("beliefs")
+    def beliefs_command() -> None:
+        console.print_json(data=_client().request("GET", "/beliefs"))
+
+    @app.command("strategies")
+    def strategies_command() -> None:
+        console.print_json(data=_client().request("GET", "/strategies"))
+
+    @app.command("skills")
+    def skills_command() -> None:
+        console.print_json(data=_client().request("GET", "/skills"))
 
     @app.command("awaken")
     def awaken() -> None:
@@ -293,3 +313,97 @@ def models(ctx: typer.Context) -> None:
             console.print(table)
         except RuntimeUnavailable:
             console.print("Models: UNAVAILABLE (runtime OFFLINE)")
+
+
+@cognitive_app.command("status")
+def cognitive_status() -> None:
+    try:
+        result = _client().request("GET", "/cognitive")
+        console.print(
+            f"Cognitive Model: {result['status']}\nTrained Weights: {result['trained_weights']}\nState Revision: {result['state']['revision']}"
+        )
+    except RuntimeUnavailable:
+        console.print("Cognitive Model: UNAVAILABLE")
+
+
+@cognitive_app.command("inspect")
+def cognitive_inspect() -> None:
+    try:
+        console.print_json(data=_client().request("GET", "/cognitive"))
+    except RuntimeUnavailable:
+        console.print("Cognitive Model: UNAVAILABLE")
+
+
+@cognitive_app.command("checkpoint")
+def cognitive_checkpoint() -> None:
+    try:
+        console.print_json(data=_client().request("POST", "/cognitive/checkpoint", {}))
+    except RuntimeUnavailable:
+        console.print("Checkpoint: UNAVAILABLE")
+
+
+@cognitive_app.command("rollback")
+def cognitive_rollback(checkpoint: str) -> None:
+    try:
+        console.print_json(
+            data=_client().request("POST", f"/cognitive/rollback/{checkpoint}", {})
+        )
+    except RuntimeUnavailable:
+        console.print("Rollback: UNAVAILABLE")
+
+
+@world_app.command("show")
+def world_show() -> None:
+    try:
+        console.print_json(data=_client().request("GET", "/world"))
+    except RuntimeUnavailable:
+        console.print("World Model: UNAVAILABLE")
+
+
+@learning_app.command("list")
+def learning_list() -> None:
+    try:
+        console.print_json(data=_client().request("GET", "/learning"))
+    except RuntimeUnavailable:
+        console.print("Learning: UNAVAILABLE")
+
+
+@learning_app.command("inspect")
+def learning_inspect(learning_id: str) -> None:
+    console.print_json(data=_client().request("GET", f"/learning/{learning_id}"))
+
+
+@learning_app.command("approve")
+def learning_approve(
+    learning_id: str, founder: str = typer.Option("", "--founder")
+) -> None:
+    if founder != "Kindred Jermaine Cox":
+        console.print("Approval: BLOCKED (explicit founder declaration required)")
+        raise typer.Exit(1)
+    console.print_json(
+        data=_client().request(
+            "POST", f"/learning/{learning_id}/approve", {"founder": founder}
+        )
+    )
+
+
+@learning_app.command("reject")
+def learning_reject(
+    learning_id: str, founder: str = typer.Option("", "--founder")
+) -> None:
+    if founder != "Kindred Jermaine Cox":
+        console.print("Rejection: BLOCKED (explicit founder declaration required)")
+        raise typer.Exit(1)
+    console.print_json(
+        data=_client().request(
+            "POST", f"/learning/{learning_id}/reject", {"founder": founder}
+        )
+    )
+
+
+@telemetry_app.command("show")
+def telemetry_show() -> None:
+    try:
+        console.print_json(data=_client().request("GET", "/telemetry"))
+    except RuntimeUnavailable:
+        console.print("Telemetry: UNAVAILABLE")

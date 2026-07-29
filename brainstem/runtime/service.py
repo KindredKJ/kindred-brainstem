@@ -1,4 +1,4 @@
-"""BRAINSTEM orchestration service: policy and state remain outside model adapters."""
+"""Serving orchestration that delegates all cognitive work to BrainstemModel."""
 
 from __future__ import annotations
 
@@ -10,6 +10,7 @@ from brainstem.adapters.models import (
     ModelAdapter,
     OpenAICompatibleAdapter,
 )
+from brainstem.model import BrainstemModel
 from brainstem.runtime.store import StateStore
 
 FOUNDER = "Kindred Jermaine Cox"
@@ -25,6 +26,7 @@ class RuntimeService:
             "configured": OpenAICompatibleAdapter(),
             "codex": CodexAdapter(),
         }
+        self.model = BrainstemModel(store, self.adapters)
 
     def health(self) -> dict[str, Any]:
         database = "HEALTHY"
@@ -94,46 +96,29 @@ class RuntimeService:
     def chat(self, session_id: str, text: str) -> dict[str, Any]:
         session = self.store.session(session_id)
         model_name = session["model"]
-        adapter = self.adapters[model_name]
-        health = adapter.health()
         self.store.add_message(session_id, "user", text)
-        if health.status != "HEALTHY":
+        try:
+            result = self.model.cognitive_cycle(
+                session_id,
+                text,
+                model_name,
+                {"repository": session.get("repository"), "session_id": session_id},
+            )
+        except Exception as exc:
             self.store.event(
                 "model.failed",
                 {
                     "session_id": session_id,
-                    "model": model_name,
-                    "status": health.status,
-                    "detail": health.detail,
+                    "instrument": model_name,
+                    "error_type": type(exc).__name__,
                 },
             )
             raise RuntimeError(
-                f"{model_name} {health.status}: {health.detail}; no fallback attempted"
-            )
-        messages = [
-            {"role": item["role"], "content": item["content"]}
-            for item in self.store.history(session_id)
-        ]
-        generation = adapter.generate(messages)
-        self.store.add_message(
-            session_id, "assistant", generation.text, generation.model
-        )
-        evidence_id = self.store.add_evidence(
-            session_id,
-            "model_response",
-            {"model": generation.model, "usage": generation.usage},
-        )
-        learning_id = self.store.propose_learning(
-            "model_performance",
-            f"Evaluate {generation.model} response outcome.",
-            evidence_id,
-        )
+                f"{model_name} failed; no fallback attempted: {exc}"
+            ) from exc
+        self.store.add_message(session_id, "assistant", result.response, model_name)
         return {
-            "session_id": session_id,
-            "model": generation.model,
-            "response": generation.text,
-            "usage": generation.usage,
-            "evidence_id": evidence_id,
-            "learning_id": learning_id,
-            "learning_status": "PROPOSED",
+            **result.model_dump(),
+            "model": model_name,
+            "learning_status": "PROPOSED" if result.learning_proposal_id else None,
         }
