@@ -4,6 +4,7 @@ import json
 import platform
 import shutil
 import subprocess
+import sys
 import uuid
 from datetime import datetime, timezone
 from pathlib import Path
@@ -13,6 +14,8 @@ import typer
 import yaml
 from rich.console import Console
 from rich.table import Table
+
+from brainstem.cli.cognitive import _client, register, render_shell_status, run_shell
 
 app = typer.Typer(
     help="Kindred Sovereign Cognitive Runtime and Model Adaptation Interface.",
@@ -25,9 +28,11 @@ console = Console()
 def main(ctx: typer.Context) -> None:
     """KINDRED BRAINSTEM CLI."""
     if ctx.invoked_subcommand is None:
-        from brainstem.cli.cognitive import render_shell_status
+        if sys.stdin.isatty():
+            run_shell(_client())
+        else:
+            render_shell_status()
 
-        render_shell_status()
 
 plugcore_app = typer.Typer(help="PlugCore host adaptation commands.")
 audit_app = typer.Typer(help="Global founder asset/company/revenue audit commands.")
@@ -38,8 +43,6 @@ app.add_typer(plugcore_app, name="plugcore")
 app.add_typer(audit_app, name="audit")
 app.add_typer(transition_app, name="transition")
 app.add_typer(outcome_app, name="outcome")
-
-from brainstem.cli.cognitive import register
 
 register(app)
 

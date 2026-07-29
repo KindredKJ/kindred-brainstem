@@ -85,3 +85,17 @@ brainstem transition report
 
 ## What is internal-only and never externally packaged
 Founder approvals, private audit imports, local ledgers, raw evidence, private financial CSVs, and internal governance endpoints are internal-only. BRAINSTEM v1 performs no real payments, tax filings, legal filings, public launches, cloud deployment, or asset transfers.
+
+## Runtime vertical slice (0.1.0-alpha)
+
+The CLI now acts as a client to a loopback BRAINSTEM runtime service. Start it
+with `kindred runtime start`, inspect actual probes with `kindred runtime status`,
+and then use `kindred shell`. Canonical session, message, evidence, learning, and
+audit state is stored in SQLite under `~/.kindred`; repository-local `.kindred`
+state contains the active session pointer.
+
+No inference model is bundled. H^ and Codex remain `NOT_CONFIGURED` until their
+real runtimes are present and pass health probes. An explicitly configured
+OpenAI-compatible endpoint can provide inference; model failures never silently
+fall back. See [the current-state assessment](docs/CURRENT_STATE_ASSESSMENT.md)
+and [architecture](docs/ARCHITECTURE.md) for verified scope and limitations.

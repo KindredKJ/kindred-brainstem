@@ -1,228 +1,295 @@
-"""Governed cognitive-runtime commands for the Kindred CLI.
-
-This module deliberately models attachment and learning as auditable local state.
-It does not claim to modify, retrain, or silently persist data in a host model.
-"""
+"""CLI client for the separately running Kindred BRAINSTEM runtime."""
 
 from __future__ import annotations
 
-import json
-import secrets
+import os
+import signal
 import subprocess
-from datetime import datetime, timezone
+import sys
+import time
 from pathlib import Path
-from typing import Any
+from typing import Callable
 
 import typer
 from rich.console import Console
-from rich.panel import Panel
 from rich.table import Table
 
+from brainstem.runtime.client import RuntimeClient, RuntimeUnavailable
+from brainstem.runtime.paths import global_state_dir, repository_root
+
 console = Console()
-FOUNDER = "Kindred Jermaine Cox"
-VERSION = "1.0.0"
-
-session_app = typer.Typer(help="Inspect governed cognitive sessions.")
-learn_app = typer.Typer(help="Review governed candidate learning.")
-models_app = typer.Typer(help="Inspect registered cognitive engines.")
-
-
-def _now() -> str:
-    return datetime.now(timezone.utc).isoformat()
+VERSION = "0.1.0-alpha"
+runtime_app = typer.Typer(help="Start, stop, and probe the local runtime service.")
+session_app = typer.Typer(help="Inspect persistent runtime sessions.")
+learn_app = typer.Typer(help="Inspect candidate-first learning proposals.")
+models_app = typer.Typer(help="Probe configured model adapters.")
 
 
-def _state_dir() -> Path:
-    path = Path.cwd() / ".kindred"
+def _client() -> RuntimeClient:
+    return RuntimeClient(os.getenv("KINDRED_RUNTIME_URL", "http://127.0.0.1:8280"))
+
+
+def _pid_path() -> Path:
+    path = global_state_dir()
     path.mkdir(parents=True, exist_ok=True)
-    return path
+    return path / "runtime.pid"
 
 
-def _read(name: str, default: Any) -> Any:
-    path = _state_dir() / name
-    if not path.exists():
-        return default
-    return json.loads(path.read_text(encoding="utf-8"))
+def _saved_session_path() -> Path:
+    root = repository_root()
+    path = root / ".kindred" if root else global_state_dir()
+    path.mkdir(parents=True, exist_ok=True)
+    return path / "active_session"
 
 
-def _write(name: str, value: Any) -> None:
-    path = _state_dir() / name
-    path.write_text(json.dumps(value, indent=2) + "\n", encoding="utf-8")
-
-
-def _append_event(event: str, **payload: Any) -> None:
-    record = {"timestamp": _now(), "event": event, **payload}
-    with (_state_dir() / "events.jsonl").open("a", encoding="utf-8") as stream:
-        stream.write(json.dumps(record, sort_keys=True) + "\n")
-
-
-def _repo() -> str | None:
-    result = subprocess.run(
-        ["git", "rev-parse", "--show-toplevel"],
-        capture_output=True,
-        text=True,
-        check=False,
-    )
-    return result.stdout.strip() if result.returncode == 0 else None
+def _runtime_health() -> dict:
+    try:
+        return _client().health()
+    except RuntimeUnavailable:
+        return {"status": "OFFLINE", "database": "UNAVAILABLE", "models": {}}
 
 
 def render_shell_status() -> None:
-    """Render the non-interactive shell welcome and canonical prompt."""
-    console.print(f"[bold cyan]KINDRED BRAINSTEM  v{VERSION}[/bold cyan]")
-    console.print(f"Founder Authority: {FOUNDER}")
-    console.print("Runtime Status: ONLINE")
-    console.print("Cognitive Continuity: ACTIVE")
-    console.print("World Model: LOADED")
-    console.print("Memory: GOVERNED")
-    console.print("Learning Mode: OBSERVE + PROPOSE")
-    console.print("Provider: KINDRED_NATIVE")
-    console.print("Authority: FOUNDER_ROOT\n")
-    console.print("[bold]kindred://brainstem >[/bold]")
+    health = _runtime_health()
+    console.print(f"[bold cyan]KINDRED BRAINSTEM {VERSION}[/bold cyan]")
+    console.print("Founder and Originating Architect: Kindred Jermaine Cox")
+    console.print(f"Runtime: {health['status']}")
+    console.print(f"State Store: {health.get('database', 'UNAVAILABLE')}")
+    h_health = health.get("models", {}).get("h-carat", {})
+    console.print(f"H^: {h_health.get('status', 'UNAVAILABLE')}")
+    console.print("Production Promotion: BLOCKED")
 
 
-def attach(model: str, here: bool = False, project: str | None = None,
-           repo: Path | None = None, mission: str | None = None) -> dict[str, Any]:
-    """Create an isolated, persistent, evidence-gated attachment record."""
-    repo_path = str(repo.resolve()) if repo else (_repo() if here else None)
-    token = secrets.token_hex(2).upper()
-    stamp = datetime.now(timezone.utc).strftime("%Y%m%d")
-    session = {
-        "session_id": f"KBS-{model.upper().replace(':', '-')}-{stamp}-{token}",
-        "host_model": model,
-        "cognitive_layer": "BRAINSTEM-DCML",
-        "memory": "ISOLATED + PERSISTENT",
-        "world_model": "KINDRED WORLD CONFIG",
-        "learning": "REAL-TIME OBSERVATION",
-        "promotion": "EVIDENCE-GATED",
-        "authority": "FOUNDER-GOVERNED",
-        "audit": "ENABLED",
-        "repository": repo_path,
-        "project": project,
-        "mission": mission,
-        "production_modification": "BLOCKED",
-        "created_at": _now(),
-    }
-    _write("session.json", session)
-    _append_event("model.attached", session_id=session["session_id"], model=model,
-                  repository=repo_path)
-    return session
+def run_shell(client: RuntimeClient, input_fn: Callable[[str], str] = input) -> None:
+    """Run a recoverable conversation; all inference occurs through the runtime API."""
+    health = client.health()
+    if health["status"] not in {"HEALTHY", "DEGRADED"}:
+        raise RuntimeUnavailable("Runtime health probe did not pass")
+    saved = _saved_session_path()
+    session = None
+    if saved.exists():
+        try:
+            session = client.session(saved.read_text().strip())
+        except RuntimeError:
+            saved.unlink(missing_ok=True)
+    if session is None:
+        try:
+            session = client.create_session(
+                repository=str(repository_root()) if repository_root() else None
+            )
+        except RuntimeError as exc:
+            console.print(f"[red]{exc}[/red]")
+            console.print(
+                "Configure a healthy model explicitly; no fallback was attempted."
+            )
+            return
+        saved.write_text(session["id"] + "\n")
+    console.print(f"Session: {session['id']}  Model: {session['model']}")
+    console.print("Type /help for commands; /exit to leave.")
+    while True:
+        try:
+            text = input_fn("kindred://brainstem > ").strip()
+        except (EOFError, KeyboardInterrupt):
+            console.print("\nSession preserved.")
+            return
+        if not text:
+            continue
+        if text == "/exit":
+            console.print("Session preserved.")
+            return
+        if text == "/help":
+            console.print(
+                "/status /model /models /attach MODEL /detach /switch MODEL /context "
+                "/mission /memory /evidence /learning /new /resume /clear /exit"
+            )
+            continue
+        if text in {"/status", "/context", "/model"}:
+            session = client.session(session["id"])
+            console.print_json(data=session)
+            continue
+        if text == "/models":
+            console.print_json(data=client.models())
+            continue
+        if text.startswith(("/switch ", "/attach ")):
+            model = text.split(maxsplit=1)[1]
+            session = client.switch(session["id"], model)
+            console.print(f"Model: {model}")
+            continue
+        if text == "/new":
+            session = client.create_session(
+                repository=str(repository_root()) if repository_root() else None
+            )
+            saved.write_text(session["id"] + "\n")
+            console.print(f"Session: {session['id']}")
+            continue
+        if text == "/resume":
+            console.print(f"Session already active: {session['id']}")
+            continue
+        if text in {
+            "/detach",
+            "/clear",
+            "/mission",
+            "/memory",
+            "/evidence",
+            "/learning",
+        }:
+            console.print(f"{text}: NOT_IMPLEMENTED")
+            continue
+        try:
+            result = client.chat(session["id"], text)
+            for chunk in result["response"].splitlines(keepends=True):
+                console.print(chunk, end="")
+            console.print()
+        except RuntimeError as exc:
+            console.print(f"[red]{exc}[/red]")
 
 
-def print_attachment(session: dict[str, Any]) -> None:
-    table = Table(show_header=False, title="KINDRED COGNITIVE ATTACHMENT")
-    table.add_column(style="bold")
-    table.add_column()
-    labels = (
-        ("Host Model", session["host_model"].upper()),
-        ("Cognitive Layer", session["cognitive_layer"]),
-        ("Session", session["session_id"]),
-        ("Memory", session["memory"]),
-        ("World Model", session["world_model"]),
-        ("Learning", session["learning"]),
-        ("Promotion", session["promotion"]),
-        ("Authority", session["authority"]),
-        ("Audit", session["audit"]),
-    )
-    for label, value in labels:
-        table.add_row(label, value)
-    console.print(table)
-    if session.get("repository"):
-        console.print(f"Repository detected: {Path(session['repository']).name}")
-        console.print("Production modification: BLOCKED")
-        console.print("Founder approval gates: ACTIVE")
-    console.print(f"\n[bold green]BRAINSTEM successfully attached to {session['host_model'].upper()}.[/bold green]")
-    console.print(f"\n{session['host_model']}://kindred-brainstem >")
+def _attach_model(model: str, here: bool) -> None:
+    try:
+        root = repository_root()
+        session = _client().create_session(model, str(root) if here and root else None)
+        _saved_session_path().write_text(session["id"] + "\n")
+        console.print_json(data=session)
+    except (RuntimeError, RuntimeUnavailable) as exc:
+        console.print(f"[red]{exc}[/red]")
+        raise typer.Exit(1) from exc
 
 
 def register(app: typer.Typer) -> None:
-    """Register cognitive commands on the legacy BRAINSTEM application."""
+    app.add_typer(runtime_app, name="runtime")
     app.add_typer(session_app, name="session")
     app.add_typer(learn_app, name="learn")
     app.add_typer(models_app, name="models")
 
     @app.command("shell")
     def shell() -> None:
-        """Open the BRAINSTEM shell welcome view."""
-        render_shell_status()
+        """Open an interactive, runtime-backed conversation."""
+        try:
+            run_shell(_client())
+        except RuntimeUnavailable as exc:
+            console.print(
+                f"[red]OFFLINE: {exc}[/red]\nStart it with `kindred runtime start`."
+            )
+            raise typer.Exit(1) from exc
 
     @app.command("attach")
-    def attach_command(
-        model: str,
-        here: bool = typer.Option(False, "--here"),
-        project: str | None = typer.Option(None, "--project"),
-        repo: Path | None = typer.Option(None, "--repo"),
-        mission: str | None = typer.Option(None, "--mission"),
-    ) -> None:
-        """Attach BRAINSTEM's governed context to a cognitive engine."""
-        print_attachment(attach(model, here, project, repo, mission))
+    def attach(model: str, here: bool = typer.Option(False, "--here")) -> None:
+        """Create a BRAINSTEM-owned session using the selected specialist."""
+        _attach_model(model, here)
 
     @app.command("codex")
-    def codex(here: bool = typer.Option(False, "--here"),
-              mission: str | None = typer.Option(None, "--mission")) -> None:
-        """Attach Codex using the canonical shorthand."""
-        print_attachment(attach("codex", here=here, mission=mission))
+    def codex(
+        here: bool = typer.Option(False, "--here"),
+        mission: str | None = typer.Option(None, "--mission"),
+    ) -> None:
+        """Attach the real installed Codex CLI, or report its truthful blocker."""
+        del mission  # Missions remain NOT_IMPLEMENTED and are never falsely persisted.
+        _attach_model("codex", here)
+
+    @app.command("with")
+    def with_model(model: str, task: str) -> None:
+        """Run one governed task using a selected model adapter."""
+        client = _client()
+        try:
+            session = client.create_session(
+                model, str(repository_root()) if repository_root() else None
+            )
+            console.print(client.chat(session["id"], task)["response"])
+        except (RuntimeError, RuntimeUnavailable) as exc:
+            console.print(f"[red]{exc}[/red]")
+            raise typer.Exit(1) from exc
 
     @app.command("awaken")
     def awaken() -> None:
-        """Verify the local founder-governed runtime planes."""
-        body = "\n".join([
-            "Founder Identity........................... VERIFIED",
-            "Founder Authority.......................... FOUNDER_ROOT",
-            "Sovereign Cognitive Continuity............. RESTORED",
-            "World Configuration........................ SYNCHRONIZED",
-            "Epistemic Integrity........................ ACTIVE",
-            "Causal Reasoning............................ ACTIVE",
-            "Counterfactual Simulation................... ACTIVE",
-            "Deep-Cognitive Learning..................... GOVERNED",
-            "Capability Foundry.......................... READY",
-            "Evidence Ledger............................. VERIFIED",
-        ])
-        console.print(Panel(body, title="KINDRED BRAINSTEM AWAKENING"))
-        console.print(f"Originated by {FOUNDER} & Kindred Labs\n\nkindred://founder-root >")
-        _append_event("runtime.awakened", authority="FOUNDER_ROOT")
+        """Display only health-probed runtime and adapter states."""
+        render_shell_status()
+
+
+@runtime_app.command("start")
+def runtime_start() -> None:
+    """Start the local runtime bound to loopback."""
+    if _runtime_health()["status"] in {"HEALTHY", "DEGRADED"}:
+        console.print("Runtime: HEALTHY (already running)")
+        return
+    log = global_state_dir() / "runtime.log"
+    log.parent.mkdir(parents=True, exist_ok=True)
+    stream = log.open("ab")
+    process = subprocess.Popen(
+        [
+            sys.executable,
+            "-m",
+            "uvicorn",
+            "brainstem.runtime.app:app",
+            "--host",
+            "127.0.0.1",
+            "--port",
+            "8280",
+        ],
+        stdout=stream,
+        stderr=subprocess.STDOUT,
+        start_new_session=True,
+    )
+    _pid_path().write_text(str(process.pid))
+    for _ in range(30):
+        time.sleep(0.1)
+        if _runtime_health()["status"] in {"HEALTHY", "DEGRADED"}:
+            console.print(
+                f"Runtime: {_runtime_health()['status']}\nPID: {process.pid}\nBind: 127.0.0.1:8280"
+            )
+            return
+    console.print(f"Runtime: UNAVAILABLE\nSee {log}")
+    raise typer.Exit(1)
+
+
+@runtime_app.command("stop")
+def runtime_stop() -> None:
+    path = _pid_path()
+    if not path.exists():
+        console.print("Runtime: OFFLINE")
+        return
+    try:
+        os.kill(int(path.read_text()), signal.SIGTERM)
+    except ProcessLookupError:
+        pass
+    path.unlink(missing_ok=True)
+    console.print("Runtime: OFFLINE")
+
+
+@runtime_app.command("status")
+def runtime_status() -> None:
+    console.print_json(data=_runtime_health())
 
 
 @session_app.command("status")
 def session_status() -> None:
-    """Show the current governed attachment."""
-    session = _read("session.json", None)
-    if session is None:
-        console.print("Session: NONE\nStart one with `kindred attach <model>`.")
+    path = _saved_session_path()
+    if not path.exists():
+        console.print("Session: UNAVAILABLE")
         return
-    print_attachment(session)
-
-
-@session_app.command("inspect")
-def session_inspect() -> None:
-    """Print machine-readable session lineage."""
-    console.print_json(data={"session": _read("session.json", None),
-                             "events": _read_events()})
-
-
-def _read_events() -> list[dict[str, Any]]:
-    path = _state_dir() / "events.jsonl"
-    return [json.loads(line) for line in path.read_text().splitlines()] if path.exists() else []
+    try:
+        console.print_json(data=_client().session(path.read_text().strip()))
+    except (RuntimeError, RuntimeUnavailable) as exc:
+        console.print(f"Session: UNAVAILABLE ({exc})")
 
 
 @learn_app.command("status")
 def learn_status() -> None:
-    """Show candidate-only learning counters."""
-    candidates = _read("learning.json", [])
-    console.print("Learning Mode: GOVERNED_REALTIME\n")
-    console.print(f"Session observations       {len(_read_events()):>6}")
-    console.print(f"Candidate lessons          {len(candidates):>6}")
-    console.print(f"Pending Founder Review     {sum(x.get('status') == 'PROPOSED' for x in candidates):>6}")
-    console.print("Production changes              0")
+    try:
+        proposals = _client().request("GET", "/learning")
+        console.print(
+            f"Learning: AVAILABLE\nCandidate proposals: {len(proposals)}\nProduction promotion: BLOCKED"
+        )
+    except RuntimeUnavailable:
+        console.print("Learning: UNAVAILABLE")
 
 
 @models_app.callback(invoke_without_command=True)
 def models(ctx: typer.Context) -> None:
-    """List registered model routes."""
     if ctx.invoked_subcommand is None:
-        table = Table(title="Cognitive Engines")
-        table.add_column("Engine")
-        table.add_column("Route")
-        table.add_column("Governance")
-        for engine, route in (("CODEX", "codex"), ("KINDRED-LLM", "kindred-llm"),
-                              ("K-GANDE", "k-gande"), ("KINDRED-ASI", "kindred-asi")):
-            table.add_row(engine, route, "FOUNDER-GOVERNED")
-        console.print(table)
+        try:
+            table = Table("Model", "Status", "Detail")
+            for model in _client().models():
+                table.add_row(model["id"], model["status"], model["detail"])
+            console.print(table)
+        except RuntimeUnavailable:
+            console.print("Models: UNAVAILABLE (runtime OFFLINE)")
