@@ -1,6 +1,15 @@
-# BRAINSTEM
+# KINDRED BRAINSTEM CLI
 
 **BRAINSTEM: From Signal to Infrastructure.** Founded by Kindred Jermaine Cox and originated from Kindred Labs.
+
+The canonical executable is `kindred` (`brainstem`, `bstem`, and `kbs` remain
+convenience entry points). Open the governed runtime with `kindred`, attach a
+model with `kindred attach <model>`, use `kindred codex --here` for repository
+aware Codex sessions, or verify all local cognitive planes with `kindred awaken`.
+
+Attachments are local, isolated, persistent session records. Observations enter
+candidate learning state and production modification remains blocked; the CLI
+does not silently retrain an attached model.
 
 ## What BRAINSTEM is
 BRAINSTEM is a local-first, evidence-ledgered operating layer for converting signals into verified infrastructure results. It does not count plans, generated text, or hype as success.

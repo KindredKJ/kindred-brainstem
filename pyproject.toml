@@ -1,6 +1,6 @@
 [project]
 name = "kindred-brainstem"
-version = "0.1.0"
+version = "1.0.0"
 description = "BRAINSTEM: From Signal to Infrastructure. Kindred Labs autonomous production factory."
 requires-python = ">=3.12"
 dependencies = [
@@ -18,7 +18,10 @@ dev = [
 ]
 
 [project.scripts]
+kindred = "brainstem.cli.app:app"
 brainstem = "brainstem.cli.app:app"
+bstem = "brainstem.cli.app:app"
+kbs = "brainstem.cli.app:app"
 
 [tool.setuptools.packages.find]
 where = ["."]

@@ -14,8 +14,20 @@ import yaml
 from rich.console import Console
 from rich.table import Table
 
-app = typer.Typer(help="BRAINSTEM: From Signal to Infrastructure.")
+app = typer.Typer(
+    help="Kindred Sovereign Cognitive Runtime and Model Adaptation Interface.",
+    invoke_without_command=True,
+)
 console = Console()
+
+
+@app.callback()
+def main(ctx: typer.Context) -> None:
+    """KINDRED BRAINSTEM CLI."""
+    if ctx.invoked_subcommand is None:
+        from brainstem.cli.cognitive import render_shell_status
+
+        render_shell_status()
 
 plugcore_app = typer.Typer(help="PlugCore host adaptation commands.")
 audit_app = typer.Typer(help="Global founder asset/company/revenue audit commands.")
@@ -26,6 +38,10 @@ app.add_typer(plugcore_app, name="plugcore")
 app.add_typer(audit_app, name="audit")
 app.add_typer(transition_app, name="transition")
 app.add_typer(outcome_app, name="outcome")
+
+from brainstem.cli.cognitive import register
+
+register(app)
 
 
 def utc_now() -> str:
