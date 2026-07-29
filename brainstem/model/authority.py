@@ -1,4 +1,4 @@
-"""Loopback-only Ed25519 founder approval records backed by OpenSSL."""
+"""Loopback-only Ed25519 founder approval records using Python cryptography."""
 
 from __future__ import annotations
 
@@ -6,11 +6,16 @@ import base64
 import hashlib
 import json
 import os
-import subprocess
-import tempfile
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
+
+from cryptography.exceptions import InvalidSignature
+from cryptography.hazmat.primitives import serialization
+from cryptography.hazmat.primitives.asymmetric.ed25519 import (
+    Ed25519PrivateKey,
+    Ed25519PublicKey,
+)
 
 from brainstem.runtime.paths import global_state_dir
 from brainstem.runtime.store import StateStore, now
@@ -23,36 +28,46 @@ class FounderAuthority:
         self.private_key = self.key_dir / "founder-ed25519-private.pem"
         self.public_key = self.key_dir / "founder-ed25519-public.pem"
 
+    def _load_private_key(self) -> Ed25519PrivateKey:
+        key = serialization.load_pem_private_key(
+            self.private_key.read_bytes(), password=None
+        )
+        if not isinstance(key, Ed25519PrivateKey):
+            raise TypeError("Founder private key is not Ed25519.")
+        return key
+
+    def _load_public_key(self) -> Ed25519PublicKey:
+        key = serialization.load_pem_public_key(self.public_key.read_bytes())
+        if not isinstance(key, Ed25519PublicKey):
+            raise TypeError("Founder public key is not Ed25519.")
+        return key
+
     def initialize(self) -> str:
         self.key_dir.mkdir(parents=True, exist_ok=True)
         if not self.private_key.exists():
-            subprocess.run(
-                [
-                    "openssl",
-                    "genpkey",
-                    "-algorithm",
-                    "ED25519",
-                    "-out",
-                    str(self.private_key),
-                ],
-                check=True,
-                capture_output=True,
+            private_key = Ed25519PrivateKey.generate()
+            self.private_key.write_bytes(
+                private_key.private_bytes(
+                    serialization.Encoding.PEM,
+                    serialization.PrivateFormat.PKCS8,
+                    serialization.NoEncryption(),
+                )
             )
             os.chmod(self.private_key, 0o600)
-            subprocess.run(
-                [
-                    "openssl",
-                    "pkey",
-                    "-in",
-                    str(self.private_key),
-                    "-pubout",
-                    "-out",
-                    str(self.public_key),
-                ],
-                check=True,
-                capture_output=True,
+        else:
+            private_key = self._load_private_key()
+
+        if not self.public_key.exists():
+            self.public_key.write_bytes(
+                private_key.public_key().public_bytes(
+                    serialization.Encoding.PEM,
+                    serialization.PublicFormat.SubjectPublicKeyInfo,
+                )
             )
             os.chmod(self.public_key, 0o644)
+        else:
+            self._load_public_key()
+
         return hashlib.sha256(self.public_key.read_bytes()).hexdigest()
 
     def _payload(
@@ -83,27 +98,9 @@ class FounderAuthority:
     ) -> str:
         payload = self._payload(action, scope, checkpoint_hash, expires_at)
         message = json.dumps(payload, sort_keys=True, separators=(",", ":")).encode()
-        with tempfile.TemporaryDirectory() as directory:
-            msg = Path(directory) / "message"
-            sig = Path(directory) / "signature"
-            msg.write_bytes(message)
-            subprocess.run(
-                [
-                    "openssl",
-                    "pkeyutl",
-                    "-sign",
-                    "-inkey",
-                    str(self.private_key),
-                    "-rawin",
-                    "-in",
-                    str(msg),
-                    "-out",
-                    str(sig),
-                ],
-                check=True,
-                capture_output=True,
-            )
-            signature = base64.b64encode(sig.read_bytes()).decode()
+        signature = base64.b64encode(
+            self._load_private_key().sign(message)
+        ).decode()
         record_id = f"KSIGN-{hashlib.sha256((signature + payload['timestamp']).encode()).hexdigest()[:12].upper()}"
         record = {"payload": payload, "signature": signature, "decision": decision}
         timestamp = now()
@@ -151,28 +148,11 @@ class FounderAuthority:
             signature = base64.b64decode(record["signature"], validate=True)
         except Exception:
             return False
-        with tempfile.TemporaryDirectory() as directory:
-            msg = Path(directory) / "message"
-            sig = Path(directory) / "signature"
-            msg.write_bytes(message)
-            sig.write_bytes(signature)
-            result = subprocess.run(
-                [
-                    "openssl",
-                    "pkeyutl",
-                    "-verify",
-                    "-pubin",
-                    "-inkey",
-                    str(self.public_key),
-                    "-rawin",
-                    "-in",
-                    str(msg),
-                    "-sigfile",
-                    str(sig),
-                ],
-                capture_output=True,
-            )
-        return result.returncode == 0
+        try:
+            self._load_public_key().verify(signature, message)
+        except (InvalidSignature, ValueError, TypeError, OSError):
+            return False
+        return True
 
     def revoke(self, record_id: str) -> None:
         row = self.store.query(

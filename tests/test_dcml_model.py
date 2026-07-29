@@ -1,5 +1,6 @@
 import inspect
 import json
+import os
 
 import pytest
 
@@ -213,14 +214,24 @@ def test_schema_migration_preserves_existing_session(tmp_path):
 
 
 def test_codex_ndjson_is_normalized_and_raw_events_are_telemetry(tmp_path):
-    executable = tmp_path / "codex"
-    executable.write_text(
-        "#!/bin/sh\n"
-        'if [ "$1" = "--version" ]; then echo \'codex test\'; exit 0; fi\n'
-        'echo \'{"item":{"type":"agent_message","text":"clean codex answer"}}\'\n'
-        'echo \'{"type":"turn.completed","usage":{"total_tokens":9}}\'\n'
-    )
-    executable.chmod(0o755)
+    if os.name == "nt":
+        executable = tmp_path / "codex.cmd"
+        executable.write_text(
+            '@echo off\r\n'
+            'if "%~1"=="--version" (echo codex test& exit /b 0)\r\n'
+            'echo {"item":{"type":"agent_message","text":"clean codex answer"}}\r\n'
+            'echo {"type":"turn.completed","usage":{"total_tokens":9}}\r\n'
+        )
+    else:
+        executable = tmp_path / "codex"
+        executable.write_text(
+            "#!/bin/sh\n"
+            'if [ "$1" = "--version" ]; then echo \'codex test\'; exit 0; fi\n'
+            'echo \'{"item":{"type":"agent_message","text":"clean codex answer"}}\'\n'
+            'echo \'{"type":"turn.completed","usage":{"total_tokens":9}}\'\n'
+        )
+        executable.chmod(0o755)
+
     from brainstem.adapters.models.codex import CodexAdapter
 
     result = CodexAdapter(str(executable), str(tmp_path)).generate(
