@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
+import hashlib
+import json
+from datetime import UTC, datetime
 from enum import StrEnum
 from typing import Any
 
@@ -60,6 +62,67 @@ class BoundaryState(StrEnum):
     EXPIRED = "EXPIRED"
 
 
+BOUNDARY_TRANSITIONS: dict[BoundaryState, frozenset[BoundaryState]] = {
+    BoundaryState.CREATED: frozenset(
+        {
+            BoundaryState.IDENTITY_VERIFIED,
+            BoundaryState.BLOCKED,
+            BoundaryState.CANCELLED,
+            BoundaryState.EXPIRED,
+        }
+    ),
+    BoundaryState.IDENTITY_VERIFIED: frozenset(
+        {
+            BoundaryState.POLICY_APPROVED,
+            BoundaryState.BLOCKED,
+            BoundaryState.CANCELLED,
+            BoundaryState.EXPIRED,
+        }
+    ),
+    BoundaryState.POLICY_APPROVED: frozenset(
+        {
+            BoundaryState.ROUTE_AUTHORIZED,
+            BoundaryState.BLOCKED,
+            BoundaryState.CANCELLED,
+            BoundaryState.EXPIRED,
+        }
+    ),
+    BoundaryState.ROUTE_AUTHORIZED: frozenset(
+        {
+            BoundaryState.SUBMITTED_TO_PORT_ZERO,
+            BoundaryState.BLOCKED,
+            BoundaryState.CANCELLED,
+            BoundaryState.EXPIRED,
+        }
+    ),
+    BoundaryState.SUBMITTED_TO_PORT_ZERO: frozenset(
+        {BoundaryState.PORT_REPORTED, BoundaryState.FAILED, BoundaryState.EXPIRED}
+    ),
+    BoundaryState.PORT_REPORTED: frozenset(
+        {BoundaryState.RECONCILIATION_PENDING, BoundaryState.FAILED}
+    ),
+    BoundaryState.RECONCILIATION_PENDING: frozenset(
+        {BoundaryState.RECONCILED, BoundaryState.FAILED, BoundaryState.CANCELLED}
+    ),
+    BoundaryState.RECONCILED: frozenset(
+        {BoundaryState.EVIDENCE_VERIFIED, BoundaryState.FAILED}
+    ),
+    BoundaryState.EVIDENCE_VERIFIED: frozenset(
+        {BoundaryState.COMPLETED, BoundaryState.FAILED}
+    ),
+    BoundaryState.COMPLETED: frozenset(),
+    BoundaryState.FAILED: frozenset(),
+    BoundaryState.BLOCKED: frozenset(),
+    BoundaryState.CANCELLED: frozenset(),
+    BoundaryState.EXPIRED: frozenset(),
+}
+
+
+def require_boundary_transition(prior: BoundaryState, new: BoundaryState) -> None:
+    if new not in BOUNDARY_TRANSITIONS[prior]:
+        raise ValueError(f"Illegal Strata boundary transition {prior} -> {new}")
+
+
 class PortRequest(BaseModel):
     schema_version: str = "1.0"
     request_id: str
@@ -98,8 +161,16 @@ class PortRequest(BaseModel):
         return value
 
     def ensure_live(self) -> None:
-        if self.expires_at <= datetime.now(timezone.utc):
+        if self.expires_at <= datetime.now(UTC):
             raise ValueError("request expired")
+
+    def authorization_digest(self) -> str:
+        """Digest every immutable request field except the signature reference."""
+        payload = self.model_dump(
+            mode="json", exclude={"founder_authorization_reference"}
+        )
+        canonical = json.dumps(payload, sort_keys=True, separators=(",", ":"))
+        return hashlib.sha256(canonical.encode()).hexdigest()
 
 
 class PortResponse(BaseModel):

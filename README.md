@@ -27,7 +27,7 @@ External outcomes are recorded in `data/external_outcomes.jsonl`. Mock outcomes 
 KRSE remains the native revenue planning engine. It defines offer, price, payment path, payout, margin, reserve, and reinvestment logic without processing real payments.
 
 ## Founder Approval Plane
-High-impact actions require explicit founder approval from Kindred Jermaine Cox. Silence never approves. The local approval server binds to `127.0.0.1` by default.
+High-impact actions require a live Ed25519 founder decision bound to the exact action, immutable payload digest, configured environment and tenant, derived signing-key identity, issuance/expiry, and one-time nonce. A public founder name or caller-supplied identity is never authorization. Silence, rejection, expiry, revocation, supersession, malformed records, and replay all fail closed. The local approval server binds to `127.0.0.1` by default.
 
 ## PlugCore
 PlugCore scans the current host and writes local host/capability/resource reports.

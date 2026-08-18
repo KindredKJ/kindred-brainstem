@@ -2,7 +2,10 @@
 
 from __future__ import annotations
 
+import hashlib
 import json
+import os
+import time
 import uuid
 from typing import Any
 
@@ -19,9 +22,8 @@ from brainstem.model.schemas import (
     WorldNode,
     WorldRelationship,
 )
-from brainstem.runtime.store import StateStore, now
+from brainstem.runtime.store import IdempotencyConflict, StateStore, now
 
-FOUNDER = "Kindred Jermaine Cox"
 _ALLOWED_TRANSITIONS = {
     LearningStatus.OBSERVED: {LearningStatus.PROPOSED, LearningStatus.REJECTED},
     LearningStatus.PROPOSED: {
@@ -54,6 +56,8 @@ class BrainstemModel:
     ) -> None:
         self.store = store
         self.instruments = instruments or {}
+        self.environment = os.getenv("KINDRED_ENVIRONMENT", "local")
+        self.tenant = os.getenv("KINDRED_TENANT", "default")
         self._ensure_state()
         self.dcml = DCMLLearning(store)
 
@@ -160,7 +164,7 @@ class BrainstemModel:
             ids = [row["id"] for row in conflicts]
             placeholders = ",".join("?" for _ in ids)
             self.store.execute(
-                f"UPDATE beliefs SET status='CONFLICTED' WHERE id IN ({placeholders})",
+                f"UPDATE beliefs SET status='CONFLICTED' WHERE id IN ({placeholders})",  # noqa: S608 -- placeholders only; values remain parameterized
                 tuple(ids),
             )
             state = self.inspect_state()
@@ -608,6 +612,81 @@ class BrainstemModel:
             )
         return self.store.query("SELECT * FROM learning_proposals ORDER BY created_at")
 
+    @staticmethod
+    def _learning_digest(row: dict[str, Any]) -> str:
+        immutable = {
+            name: row[name]
+            for name in ("id", "kind", "payload", "consequential", "provenance")
+        }
+        serialized = json.dumps(immutable, sort_keys=True, separators=(",", ":"))
+        return hashlib.sha256(serialized.encode()).hexdigest()
+
+    def _wait_for_decision(self, approval_id: str, request_hash: str) -> dict[str, Any]:
+        deadline = time.monotonic() + 5
+        while time.monotonic() < deadline:
+            submission = self.store.submission("learning-decision", approval_id)
+            if submission and submission["request_hash"] != request_hash:
+                raise PermissionError(
+                    "Decision identity was rebound to different content"
+                )
+            if submission and submission["status"] == "COMPLETED":
+                if not submission["response"]:
+                    raise PermissionError(
+                        "Completed decision is missing its durable response"
+                    )
+                return json.loads(submission["response"])
+            if submission and submission["status"] == "FAILED":
+                raise PermissionError("Prior decision submission failed closed")
+            time.sleep(0.01)
+        raise PermissionError("Matching decision submission is still processing")
+
+    def _claim_decision(
+        self,
+        approval_id: str,
+        learning_id: str,
+        action: str,
+        digest: str,
+        decision: str,
+    ) -> tuple[bool, dict[str, Any] | None, str]:
+        request_hash = hashlib.sha256(
+            json.dumps(
+                {
+                    "approval_id": approval_id,
+                    "learning_id": learning_id,
+                    "action": action,
+                    "payload_digest": digest,
+                    "environment": self.environment,
+                    "tenant": self.tenant,
+                    "decision": decision,
+                },
+                sort_keys=True,
+                separators=(",", ":"),
+            ).encode()
+        ).hexdigest()
+        try:
+            status, stored_response = self.store.claim_submission(
+                "learning-decision", approval_id, learning_id, request_hash
+            )
+        except IdempotencyConflict as exc:
+            raise PermissionError(
+                "Decision identity was rebound to different content"
+            ) from exc
+        if status == "CLAIMED":
+            return True, None, request_hash
+        if status == "COMPLETED":
+            if stored_response is None:
+                raise PermissionError(
+                    "Completed decision is missing its durable response"
+                )
+            return False, stored_response, request_hash
+        if status == "PROCESSING":
+            return (
+                False,
+                self._wait_for_decision(approval_id, request_hash),
+                request_hash,
+            )
+        raise PermissionError("Prior decision submission failed closed")
+
     def _transition_learning(
         self,
         learning_id: str,
@@ -615,22 +694,33 @@ class BrainstemModel:
         evaluation: dict[str, Any] | None = None,
         approval_id: str | None = None,
     ) -> dict[str, Any]:
-        rows = self.learning(learning_id)
-        if not rows:
-            raise KeyError(learning_id)
-        current = LearningStatus(rows[0]["status"])
-        if target not in _ALLOWED_TRANSITIONS.get(current, set()):
-            raise ValueError(f"Invalid learning transition {current} -> {target}")
-        self.store.execute(
-            "UPDATE learning_proposals SET status=?, evaluation=COALESCE(?,evaluation), approval_id=COALESCE(?,approval_id), revision=revision+1, updated_at=? WHERE id=?",
-            (
-                target,
-                json.dumps(evaluation) if evaluation else None,
-                approval_id,
-                now(),
-                learning_id,
-            ),
-        )
+        with self.store.connect() as db:
+            db.execute("BEGIN IMMEDIATE")
+            selected = db.execute(
+                "SELECT * FROM learning_proposals WHERE id=?", (learning_id,)
+            ).fetchone()
+            if selected is None:
+                raise KeyError(learning_id)
+            row = dict(selected)
+            current = LearningStatus(row["status"])
+            if target not in _ALLOWED_TRANSITIONS.get(current, set()):
+                raise ValueError(f"Invalid learning transition {current} -> {target}")
+            updated = db.execute(
+                "UPDATE learning_proposals SET status=?, evaluation=COALESCE(?,evaluation), "
+                "approval_id=COALESCE(?,approval_id), revision=revision+1, updated_at=? "
+                "WHERE id=? AND status=? AND revision=?",
+                (
+                    target,
+                    json.dumps(evaluation) if evaluation else None,
+                    approval_id,
+                    now(),
+                    learning_id,
+                    current,
+                    row["revision"],
+                ),
+            )
+            if updated.rowcount != 1:
+                raise ValueError("Concurrent learning transition rejected")
         self.store.event(
             "dcml.learning_transition",
             {"learning_id": learning_id, "from": current, "to": target},
@@ -646,108 +736,240 @@ class BrainstemModel:
             {"score": score, "evidence": evidence},
         )
 
-    def approve_learning(self, learning_id: str, founder: str) -> dict[str, Any]:
-        if founder != FOUNDER:
-            raise PermissionError("Founder approval required")
-        approval_id = _id("KAPR")
-        self.store.execute(
-            "INSERT INTO approvals VALUES(?,?,?,?,?)",
-            (
-                approval_id,
-                f"promote_learning:{learning_id}",
-                "APPROVED",
-                founder,
-                now(),
-            ),
-        )
-        return self._transition_learning(
-            learning_id, LearningStatus.APPROVED, approval_id=approval_id
-        )
-
-    def reject_learning(self, learning_id: str, founder: str) -> dict[str, Any]:
-        if founder != FOUNDER:
-            raise PermissionError("Founder authority required")
+    def approve_learning(self, learning_id: str, approval_id: str) -> dict[str, Any]:
         rows = self.learning(learning_id)
         if not rows:
             raise KeyError(learning_id)
-        current = LearningStatus(rows[0]["status"])
-        if LearningStatus.REJECTED not in _ALLOWED_TRANSITIONS.get(current, set()):
-            raise ValueError(f"Cannot reject from {current}")
-        return self._transition_learning(learning_id, LearningStatus.REJECTED)
-
-    def promote_learning(self, learning_id: str) -> dict[str, Any]:
-        row = self._transition_learning(learning_id, LearningStatus.PROMOTED)
-        payload = json.loads(row["payload"])
-        if row["kind"] in {"strategy", "strategy_evaluation"}:
-            strategy = payload.get("strategy", payload)
-            strategy_id = strategy.get("id", _id("KSTR"))
+        digest = self._learning_digest(rows[0])
+        action = f"learning:approve:{learning_id}"
+        claimed, prior, _ = self._claim_decision(
+            approval_id, learning_id, action, digest, "APPROVED"
+        )
+        if not claimed:
+            if prior is None:
+                raise PermissionError("Decision result was not durably available")
+            return prior
+        try:
+            if not self.dcml.authority.authorize(
+                approval_id,
+                action,
+                digest,
+                expected_environment=self.environment,
+                expected_tenant=self.tenant,
+                expected_scope="learning-governance",
+            ):
+                raise PermissionError("Cryptographic founder approval is invalid")
             self.store.execute(
-                "INSERT OR REPLACE INTO strategies VALUES(?,?,?,?,?,?,?,?,?,?,?)",
+                "INSERT OR IGNORE INTO approvals VALUES(?,?,?,?,?)",
                 (
-                    strategy_id,
-                    strategy.get("name", "learned_strategy"),
-                    strategy.get("description", "Founder-approved learned strategy"),
-                    strategy.get("expected_utility", 0.8),
-                    strategy.get("risk", 0.2),
-                    strategy.get("confidence", 0.8),
-                    "dcml_learning",
-                    "PROMOTED",
-                    learning_id,
-                    1,
+                    approval_id,
+                    action,
+                    "APPROVED",
+                    self.dcml.authority.key_id(),
                     now(),
                 ),
             )
-        elif row["kind"] == "memory":
-            self.store.execute(
-                "INSERT INTO memory VALUES(?,?,?,?,?,?)",
-                (
-                    _id("KMEM"),
-                    payload.get("memory_type", "semantic"),
-                    payload.get("content", ""),
-                    "PROMOTED",
-                    learning_id,
-                    now(),
-                ),
+            result = self._transition_learning(
+                learning_id, LearningStatus.APPROVED, approval_id=approval_id
             )
-        elif row["kind"] in {"skill", "routing_policy", "procedure"}:
-            self.store.execute(
-                "INSERT INTO skills VALUES(?,?,?,?,?,?,?)",
-                (
-                    _id("KSKILL"),
-                    payload.get("name", row["kind"]),
-                    payload.get("procedure", json.dumps(payload)),
-                    "PROMOTED",
-                    json.dumps([learning_id]),
-                    1,
-                    now(),
-                ),
+            self.store.complete_submission("learning-decision", approval_id, result)
+            return result
+        except Exception as exc:
+            self.store.fail_submission(
+                "learning-decision", approval_id, type(exc).__name__
             )
-        return row
+            raise
 
-    def activate_learning(self, learning_id: str) -> dict[str, Any]:
-        row = self._transition_learning(learning_id, LearningStatus.ACTIVE)
-        self.store.execute(
-            "UPDATE strategies SET status='ACTIVE' WHERE learning_id=?", (learning_id,)
+    def reject_learning(self, learning_id: str, approval_id: str) -> dict[str, Any]:
+        rows = self.learning(learning_id)
+        if not rows:
+            raise KeyError(learning_id)
+        digest = self._learning_digest(rows[0])
+        action = f"learning:reject:{learning_id}"
+        claimed, prior, _ = self._claim_decision(
+            approval_id, learning_id, action, digest, "REJECTED"
         )
-        self.store.execute(
-            "UPDATE memory SET status='ACTIVE' WHERE evidence_id=?", (learning_id,)
-        )
-        self.store.execute(
-            "UPDATE skills SET status='ACTIVE' WHERE provenance LIKE ?",
-            (f"%{learning_id}%",),
-        )
-        state = self.inspect_state()
-        state.learned_strategies.extend(
-            row_["id"]
-            for row_ in self.store.query(
-                "SELECT id FROM strategies WHERE learning_id=?", (learning_id,)
+        if not claimed:
+            if prior is None:
+                raise PermissionError("Decision result was not durably available")
+            return prior
+        try:
+            if not self.dcml.authority.authorize(
+                approval_id,
+                action,
+                digest,
+                expected_environment=self.environment,
+                expected_tenant=self.tenant,
+                expected_scope="learning-governance",
+                expected_decision="REJECTED",
+            ):
+                raise PermissionError("Cryptographic founder rejection is invalid")
+            result = self._transition_learning(learning_id, LearningStatus.REJECTED)
+            self.store.complete_submission("learning-decision", approval_id, result)
+            return result
+        except Exception as exc:
+            self.store.fail_submission(
+                "learning-decision", approval_id, type(exc).__name__
             )
-        )
-        state.revision += 1
-        self._save_state(state)
-        return row
+            raise
 
-    def rollback_learning(self, learning_id: str) -> dict[str, Any]:
+    def _authorize_learning_execution(
+        self,
+        row: dict[str, Any],
+        approval_id: str,
+        action: str,
+        required_status: LearningStatus,
+    ) -> None:
+        if LearningStatus(row["status"]) != required_status:
+            raise ValueError(
+                f"Learning must be {required_status} before {action} execution"
+            )
+        if not self.dcml.authority.authorize(
+            approval_id,
+            f"learning:{action}:{row['id']}",
+            self._learning_digest(row),
+            expected_environment=self.environment,
+            expected_tenant=self.tenant,
+            expected_scope="learning-execution",
+        ):
+            raise PermissionError(
+                f"Live cryptographic founder {action} approval is required"
+            )
+
+    def promote_learning(self, learning_id: str, approval_id: str) -> dict[str, Any]:
+        rows = self.learning(learning_id)
+        if not rows:
+            raise KeyError(learning_id)
+        digest = self._learning_digest(rows[0])
+        action = f"learning:promote:{learning_id}"
+        claimed, prior, _ = self._claim_decision(
+            approval_id, learning_id, action, digest, "APPROVED"
+        )
+        if not claimed:
+            if prior is None:
+                raise PermissionError("Decision result was not durably available")
+            return prior
+        try:
+            self._authorize_learning_execution(
+                rows[0], approval_id, "promote", LearningStatus.APPROVED
+            )
+            row = self._transition_learning(learning_id, LearningStatus.PROMOTED)
+            payload = json.loads(row["payload"])
+            if row["kind"] in {"strategy", "strategy_evaluation"}:
+                strategy = payload.get("strategy", payload)
+                strategy_id = strategy.get("id", _id("KSTR"))
+                self.store.execute(
+                    "INSERT OR REPLACE INTO strategies VALUES(?,?,?,?,?,?,?,?,?,?,?)",
+                    (
+                        strategy_id,
+                        strategy.get("name", "learned_strategy"),
+                        strategy.get(
+                            "description", "Founder-approved learned strategy"
+                        ),
+                        strategy.get("expected_utility", 0.8),
+                        strategy.get("risk", 0.2),
+                        strategy.get("confidence", 0.8),
+                        "dcml_learning",
+                        "PROMOTED",
+                        learning_id,
+                        1,
+                        now(),
+                    ),
+                )
+            elif row["kind"] == "memory":
+                self.store.execute(
+                    "INSERT INTO memory VALUES(?,?,?,?,?,?)",
+                    (
+                        _id("KMEM"),
+                        payload.get("memory_type", "semantic"),
+                        payload.get("content", ""),
+                        "PROMOTED",
+                        learning_id,
+                        now(),
+                    ),
+                )
+            elif row["kind"] in {"skill", "routing_policy", "procedure"}:
+                self.store.execute(
+                    "INSERT INTO skills VALUES(?,?,?,?,?,?,?)",
+                    (
+                        _id("KSKILL"),
+                        payload.get("name", row["kind"]),
+                        payload.get("procedure", json.dumps(payload)),
+                        "PROMOTED",
+                        json.dumps([learning_id]),
+                        1,
+                        now(),
+                    ),
+                )
+            self.store.complete_submission("learning-decision", approval_id, row)
+            return row
+        except Exception as exc:
+            self.store.fail_submission(
+                "learning-decision", approval_id, type(exc).__name__
+            )
+            raise
+
+    def activate_learning(self, learning_id: str, approval_id: str) -> dict[str, Any]:
+        rows = self.learning(learning_id)
+        if not rows:
+            raise KeyError(learning_id)
+        digest = self._learning_digest(rows[0])
+        action = f"learning:activate:{learning_id}"
+        claimed, prior, _ = self._claim_decision(
+            approval_id, learning_id, action, digest, "APPROVED"
+        )
+        if not claimed:
+            if prior is None:
+                raise PermissionError("Decision result was not durably available")
+            return prior
+        try:
+            self._authorize_learning_execution(
+                rows[0], approval_id, "activate", LearningStatus.PROMOTED
+            )
+            row = self._transition_learning(learning_id, LearningStatus.ACTIVE)
+            self.store.execute(
+                "UPDATE strategies SET status='ACTIVE' WHERE learning_id=?",
+                (learning_id,),
+            )
+            self.store.execute(
+                "UPDATE memory SET status='ACTIVE' WHERE evidence_id=?",
+                (learning_id,),
+            )
+            self.store.execute(
+                "UPDATE skills SET status='ACTIVE' WHERE provenance LIKE ?",
+                (f"%{learning_id}%",),
+            )
+            state = self.inspect_state()
+            state.learned_strategies.extend(
+                row_["id"]
+                for row_ in self.store.query(
+                    "SELECT id FROM strategies WHERE learning_id=?", (learning_id,)
+                )
+            )
+            state.revision += 1
+            self._save_state(state)
+            self.store.complete_submission("learning-decision", approval_id, row)
+            return row
+        except Exception as exc:
+            self.store.fail_submission(
+                "learning-decision", approval_id, type(exc).__name__
+            )
+            raise
+
+    def rollback_learning(self, learning_id: str, approval_id: str) -> dict[str, Any]:
+        rows = self.learning(learning_id)
+        if not rows:
+            raise KeyError(learning_id)
+        digest = self._learning_digest(rows[0])
+        if not self.dcml.authority.authorize(
+            approval_id,
+            f"learning:rollback:{learning_id}",
+            digest,
+            expected_environment=self.environment,
+            expected_tenant=self.tenant,
+            expected_scope="learning-rollback",
+        ):
+            raise PermissionError("Signed founder learning rollback is invalid")
         row = self._transition_learning(learning_id, LearningStatus.ROLLED_BACK)
         self.store.execute(
             "UPDATE strategies SET status='ROLLED_BACK' WHERE learning_id=?",
@@ -804,12 +1026,22 @@ class BrainstemModel:
         self.store.event("dcml.checkpoint_created", {"checkpoint_id": checkpoint_id})
         return checkpoint_id
 
-    def rollback(self, checkpoint_id: str) -> CognitiveState:
+    def rollback(self, checkpoint_id: str, approval_id: str) -> CognitiveState:
         rows = self.store.query(
             "SELECT snapshot FROM model_checkpoints WHERE id=?", (checkpoint_id,)
         )
         if not rows:
             raise KeyError(checkpoint_id)
+        snapshot_digest = hashlib.sha256(rows[0]["snapshot"].encode()).hexdigest()
+        if not self.dcml.authority.authorize(
+            approval_id,
+            f"cognitive:rollback:{checkpoint_id}",
+            snapshot_digest,
+            expected_environment=self.environment,
+            expected_tenant=self.tenant,
+            expected_scope="cognitive-rollback",
+        ):
+            raise PermissionError("Signed founder checkpoint rollback is invalid")
         snapshot = json.loads(rows[0]["snapshot"])
         state = CognitiveState.model_validate(snapshot["state"])
         state.revision += 1

@@ -1,3 +1,4 @@
+import hashlib
 import inspect
 import json
 import os
@@ -5,6 +6,7 @@ import os
 import pytest
 
 from brainstem.adapters.models.base import Generation, ModelAdapter, ModelHealth
+from brainstem.model.authority import FounderAuthority
 from brainstem.model.core import BrainstemModel
 from brainstem.model.schemas import StrategyCandidate
 from brainstem.runtime.service import RuntimeService
@@ -45,6 +47,7 @@ def make_model(tmp_path, instrument=None):
     adapter = instrument or CapturingInstrument()
     store = StateStore(tmp_path / "state.db", tmp_path / "audit.jsonl")
     model = BrainstemModel(store, {"specialist": adapter})
+    model.dcml.authority = FounderAuthority(store, tmp_path / "authority")
     session = store.create_session("specialist")
     return model, store, session, adapter
 
@@ -68,10 +71,51 @@ def activate(model, payload=None):
         "strategy", payload or learned_strategy_payload(), ["test-evidence"]
     )
     model.evaluate_learning(learning_id, 0.95, ["evaluation-evidence"])
-    model.approve_learning(learning_id, "Kindred Jermaine Cox")
-    model.promote_learning(learning_id)
-    model.activate_learning(learning_id)
+    approval = approve_decision(model, learning_id)
+    approved = model.approve_learning(learning_id, approval)
+    promotion = execution_decision(model, learning_id, "promote")
+    promoted = model.promote_learning(learning_id, promotion)
+    assert model.promote_learning(learning_id, promotion) == promoted
+    activation = execution_decision(model, learning_id, "activate")
+    activated = model.activate_learning(learning_id, activation)
+    assert model.activate_learning(learning_id, activation) == activated
+    assert model.promote_learning(learning_id, promotion) == promoted
+    assert model.approve_learning(learning_id, approval) == approved
     return learning_id
+
+
+def approve_decision(model, learning_id):
+    row = model.learning(learning_id)[0]
+    return model.dcml.authority.sign(
+        f"learning:approve:{learning_id}",
+        "learning-governance",
+        model._learning_digest(row),
+        environment=model.environment,
+        tenant=model.tenant,
+    )
+
+
+def execution_decision(model, learning_id, action):
+    row = model.learning(learning_id)[0]
+    return model.dcml.authority.sign(
+        f"learning:{action}:{learning_id}",
+        "learning-execution",
+        model._learning_digest(row),
+        environment=model.environment,
+        tenant=model.tenant,
+    )
+
+
+def reject_decision(model, learning_id):
+    row = model.learning(learning_id)[0]
+    return model.dcml.authority.sign(
+        f"learning:reject:{learning_id}",
+        "learning-governance",
+        model._learning_digest(row),
+        decision="REJECTED",
+        environment=model.environment,
+        tenant=model.tenant,
+    )
 
 
 def test_identity_and_cognitive_state_survive_model_restart(tmp_path):
@@ -121,14 +165,20 @@ def test_learning_requires_approval_and_approved_strategy_changes_selection(tmp_
     model, _, _, _ = make_model(tmp_path)
     learning_id = model.learn("strategy", learned_strategy_payload(), ["evidence"])
     model.evaluate_learning(learning_id, 0.9, ["evaluation"])
-    with pytest.raises(ValueError):
-        model.promote_learning(learning_id)
+    with pytest.raises(ValueError, match="must be APPROVED"):
+        model.promote_learning(learning_id, "forged-founder-name")
     with pytest.raises(PermissionError):
-        model.approve_learning(learning_id, "not-founder")
-    model.approve_learning(learning_id, "Kindred Jermaine Cox")
-    model.promote_learning(learning_id)
+        model.approve_learning(learning_id, "forged-founder-name")
+    model.approve_learning(learning_id, approve_decision(model, learning_id))
+    with pytest.raises(PermissionError):
+        model.promote_learning(learning_id, "forged-founder-name")
+    model.promote_learning(
+        learning_id, execution_decision(model, learning_id, "promote")
+    )
     assert model.reason("x", model.recall("x"))[0].name != "approved_strategy"
-    model.activate_learning(learning_id)
+    model.activate_learning(
+        learning_id, execution_decision(model, learning_id, "activate")
+    )
     selected = model.decide(model.reason("x", model.recall("x")))
     assert selected.name == "approved_strategy"
 
@@ -138,7 +188,7 @@ def test_rejected_learning_has_no_effect(tmp_path):
     learning_id = model.learn(
         "strategy", learned_strategy_payload("rejected_strategy"), ["evidence"]
     )
-    model.reject_learning(learning_id, "Kindred Jermaine Cox")
+    model.reject_learning(learning_id, reject_decision(model, learning_id))
     assert model.learning(learning_id)[0]["status"] == "REJECTED"
     assert all(row["name"] != "rejected_strategy" for row in model.strategies())
 
@@ -159,7 +209,15 @@ def test_promoted_learning_can_be_rolled_back(tmp_path):
     assert (
         model.decide(model.reason("x", model.recall("x"))).name == "approved_strategy"
     )
-    model.rollback_learning(learning_id)
+    row = model.learning(learning_id)[0]
+    rollback = model.dcml.authority.sign(
+        f"learning:rollback:{learning_id}",
+        "learning-rollback",
+        model._learning_digest(row),
+        environment=model.environment,
+        tenant=model.tenant,
+    )
+    model.rollback_learning(learning_id, rollback)
     assert model.learning(learning_id)[0]["status"] == "ROLLED_BACK"
     assert (
         model.decide(model.reason("x", model.recall("x"))).name != "approved_strategy"
@@ -172,7 +230,17 @@ def test_checkpoint_restores_prior_cognitive_revision(tmp_path):
     checkpoint = model.checkpoint()
     expected_context = model.inspect_state().current_context
     model.cognitive_cycle(session["id"], "second", "specialist", {"changed": True})
-    restored = model.rollback(checkpoint)
+    snapshot = model.store.query(
+        "SELECT snapshot FROM model_checkpoints WHERE id=?", (checkpoint,)
+    )[0]["snapshot"]
+    approval = model.dcml.authority.sign(
+        f"cognitive:rollback:{checkpoint}",
+        "cognitive-rollback",
+        hashlib.sha256(snapshot.encode()).hexdigest(),
+        environment=model.environment,
+        tenant=model.tenant,
+    )
+    restored = model.rollback(checkpoint, approval)
     assert restored.current_context == expected_context
 
 
@@ -210,6 +278,7 @@ def test_schema_migration_preserves_existing_session(tmp_path):
         {"version": 2},
         {"version": 3},
         {"version": 4},
+        {"version": 5},
     ]
 
 
@@ -217,7 +286,7 @@ def test_codex_ndjson_is_normalized_and_raw_events_are_telemetry(tmp_path):
     if os.name == "nt":
         executable = tmp_path / "codex.cmd"
         executable.write_text(
-            '@echo off\r\n'
+            "@echo off\r\n"
             'if "%~1"=="--version" (echo codex test& exit /b 0)\r\n'
             'echo {"item":{"type":"agent_message","text":"clean codex answer"}}\r\n'
             'echo {"type":"turn.completed","usage":{"total_tokens":9}}\r\n'

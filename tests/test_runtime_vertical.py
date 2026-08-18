@@ -58,7 +58,11 @@ def test_runtime_api_chat_evidence_and_candidate_learning(tmp_path):
     assert endpoint(app, "/health")()["database"] == "HEALTHY"
     session = endpoint(app, "/sessions")(SessionRequest(model="working"))
     body = endpoint(app, "/chat")(
-        ChatRequest(session_id=session["id"], message="hello")
+        ChatRequest(
+            session_id=session["id"],
+            message="hello",
+            idempotency_key="runtime-chat-hello-0001",
+        )
     )
     assert body["response"] == "SIMULATED response to: hello"
     assert body["learning_status"] == "PROPOSED"

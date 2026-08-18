@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import os
 from urllib.error import URLError
+from urllib.parse import urlparse
 from urllib.request import Request, urlopen
 
 from .base import Generation, ModelAdapter, ModelHealth
@@ -21,6 +22,8 @@ class OpenAICompatibleAdapter(ModelAdapter):
     ) -> None:
         resolved_url: str = base_url or os.getenv("KINDRED_MODEL_BASE_URL") or ""
         self.base_url: str = resolved_url.rstrip("/")
+        if self.base_url and urlparse(self.base_url).scheme not in {"http", "https"}:
+            raise ValueError("Model endpoint must use HTTP or HTTPS")
         self.model: str = model or os.getenv("KINDRED_MODEL_NAME") or ""
         self.api_key = api_key or os.getenv("KINDRED_MODEL_API_KEY")
 
@@ -33,13 +36,13 @@ class OpenAICompatibleAdapter(ModelAdapter):
         headers = {"Content-Type": "application/json"}
         if self.api_key:
             headers["Authorization"] = f"Bearer {self.api_key}"
-        request = Request(
+        request = Request(  # noqa: S310 -- constructor restricts endpoint schemes
             f"{self.base_url}{path}",
             headers=headers,
             data=json.dumps(payload).encode() if payload else None,
             method="POST" if payload else "GET",
         )
-        with urlopen(request, timeout=timeout) as response:
+        with urlopen(request, timeout=timeout) as response:  # noqa: S310
             return json.loads(response.read())
 
     def health(self) -> ModelHealth:

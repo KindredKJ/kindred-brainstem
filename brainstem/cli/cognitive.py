@@ -383,28 +383,22 @@ def learning_inspect(learning_id: str) -> None:
 
 @learning_app.command("approve")
 def learning_approve(
-    learning_id: str, founder: str = typer.Option("", "--founder")
+    learning_id: str, approval_id: str = typer.Option(..., "--approval-id")
 ) -> None:
-    if founder != "Kindred Jermaine Cox":
-        console.print("Approval: BLOCKED (explicit founder declaration required)")
-        raise typer.Exit(1)
     console.print_json(
         data=_client().request(
-            "POST", f"/learning/{learning_id}/approve", {"founder": founder}
+            "POST", f"/learning/{learning_id}/approve", {"approval_id": approval_id}
         )
     )
 
 
 @learning_app.command("reject")
 def learning_reject(
-    learning_id: str, founder: str = typer.Option("", "--founder")
+    learning_id: str, approval_id: str = typer.Option(..., "--approval-id")
 ) -> None:
-    if founder != "Kindred Jermaine Cox":
-        console.print("Rejection: BLOCKED (explicit founder declaration required)")
-        raise typer.Exit(1)
     console.print_json(
         data=_client().request(
-            "POST", f"/learning/{learning_id}/reject", {"founder": founder}
+            "POST", f"/learning/{learning_id}/reject", {"approval_id": approval_id}
         )
     )
 

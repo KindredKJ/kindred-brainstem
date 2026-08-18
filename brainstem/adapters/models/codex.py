@@ -29,7 +29,7 @@ class CodexAdapter(ModelAdapter):
             return ModelHealth(
                 "NOT_CONFIGURED", "Codex CLI executable was not found on PATH."
             )
-        result = subprocess.run(
+        result = subprocess.run(  # noqa: S603 -- executable is resolved from PATH
             [path, "--version"], capture_output=True, text=True, timeout=10, check=False
         )
         return ModelHealth(
@@ -41,9 +41,12 @@ class CodexAdapter(ModelAdapter):
         health = self.health()
         if health.status != "HEALTHY":
             raise RuntimeError(f"{health.status}: {health.detail}")
+        executable = shutil.which(self.executable)
+        if not executable:
+            raise RuntimeError("Codex executable disappeared after its health probe")
         prompt = "\n".join(f"{item['role']}: {item['content']}" for item in messages)
-        result = subprocess.run(
-            [self.executable, "exec", "--json", prompt],
+        result = subprocess.run(  # noqa: S603 -- executable is resolved from PATH
+            [executable, "exec", "--json", prompt],
             cwd=self.cwd,
             capture_output=True,
             text=True,

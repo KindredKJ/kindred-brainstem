@@ -5,6 +5,7 @@ from __future__ import annotations
 import hashlib
 import json
 import math
+import os
 import random
 import re
 import uuid
@@ -48,6 +49,8 @@ class DCMLLearning:
     def __init__(self, store: StateStore) -> None:
         self.store = store
         self.authority = FounderAuthority(store)
+        self.environment = os.getenv("KINDRED_ENVIRONMENT", "local")
+        self.tenant = os.getenv("KINDRED_TENANT", "default")
         self.advanced = AdvancedDCML(store, self._advanced_proposal)
         if not self.store.query(
             "SELECT id FROM policy_parameters WHERE id='KPOLICY-BASELINE'"
@@ -107,11 +110,29 @@ class DCMLLearning:
         return record_id
 
     def _get(self, table: str, record_id: str) -> dict[str, Any]:
-        rows = self.store.query(f"SELECT * FROM {table} WHERE id=?", (record_id,))
+        rows = self.store.query(
+            f"SELECT * FROM {table} WHERE id=?",  # noqa: S608 -- table names are internal constants
+            (record_id,),
+        )
         if not rows:
             raise KeyError(record_id)
         row = rows[0]
         return {**row, "payload": json.loads(row["payload"])}
+
+    @staticmethod
+    def _experience_digest(payload: dict[str, Any]) -> str:
+        immutable = {
+            key: value
+            for key, value in payload.items()
+            if key
+            not in {
+                "approval_state",
+                "learning_approval_id",
+                "learning_approval_environment",
+                "learning_approval_tenant",
+            }
+        }
+        return _hash(immutable)
 
     def record_experience(self, **fields: Any) -> str:
         required = {
@@ -303,13 +324,23 @@ class DCMLLearning:
 
     def approve_for_learning(self, experience_id: str, approval_id: str) -> None:
         exp = self._get("experiences_v2", experience_id)
-        if not self.authority.verify(approval_id, f"learn:{experience_id}"):
+        digest = self._experience_digest(exp["payload"])
+        if not self.authority.authorize(
+            approval_id,
+            f"learn:{experience_id}",
+            digest,
+            expected_environment=self.environment,
+            expected_tenant=self.tenant,
+            expected_scope="experience-learning",
+        ):
             raise PermissionError("Signed founder learning approval is invalid")
         if exp["status"] != "VERIFIED":
             raise PermissionError("Experience outcome is not verified")
         data = exp["payload"]
         data["approval_state"] = "APPROVED_FOR_LEARNING"
         data["learning_approval_id"] = approval_id
+        data["learning_approval_environment"] = self.environment
+        data["learning_approval_tenant"] = self.tenant
         self.store.execute(
             "UPDATE experiences_v2 SET status='APPROVED_FOR_LEARNING',payload=?,content_hash=?,updated_at=? WHERE id=?",
             (_canonical(data), _hash(data), now(), experience_id),
@@ -324,7 +355,17 @@ class DCMLLearning:
             data = json.loads(row["payload"])
             serialized = _canonical(data)
             reason = None
-            if data["privacy_classification"] not in {"PUBLIC", "INTERNAL_APPROVED"}:
+            approval_id = data.get("learning_approval_id")
+            if not approval_id or not self.authority.verify(
+                approval_id,
+                f"learn:{row['id']}",
+                self._experience_digest(data),
+                expected_environment=data.get("learning_approval_environment", ""),
+                expected_tenant=data.get("learning_approval_tenant", ""),
+                expected_scope="experience-learning",
+            ):
+                reason = "invalid_or_expired_approval"
+            elif data["privacy_classification"] not in {"PUBLIC", "INTERNAL_APPROVED"}:
                 reason = "privacy"
             elif SECRET_PATTERN.search(serialized):
                 reason = "secret_detected"
@@ -430,7 +471,7 @@ class DCMLLearning:
         params = self._parameters().copy()
         params = {k: list(v) for k, v in params.items()}
         before = _hash(params)
-        rng = random.Random(seed)
+        rng = random.Random(seed)  # noqa: S311 -- reproducible training order, not security
         for _ in range(epochs):
             order = list(ids)
             rng.shuffle(order)
@@ -485,8 +526,12 @@ class DCMLLearning:
         cases: list[dict[str, Any]],
         parameters: dict[str, list[float]] | None = None,
         phase: str = "baseline",
+        baseline_parameters: dict[str, list[float]] | None = None,
     ) -> dict[str, Any]:
+        if not cases:
+            raise ValueError("Benchmark requires at least one case")
         successes = []
+        regressions = []
         for case in cases:
             selected = max(
                 self.strategies,
@@ -496,6 +541,18 @@ class DCMLLearning:
                 ),
             )
             successes.append(float(selected == case["best_strategy"]))
+            if baseline_parameters is not None:
+                baseline_selected = max(
+                    self.strategies,
+                    key=lambda x: (
+                        self.score(case["input_state"], baseline_parameters)[x],
+                        -self.strategies.index(x),
+                    ),
+                )
+                regressions.append(
+                    baseline_selected == case["best_strategy"]
+                    and selected != case["best_strategy"]
+                )
         payload: dict[str, Any] = {
             "phase": phase,
             "task_success_rate": sum(successes) / len(successes),
@@ -512,19 +569,51 @@ class DCMLLearning:
             "cost_per_verified_outcome": 0.0,
             "latency_per_verified_outcome": 0.0,
             "retention_score": 1.0,
-            "regression_count": 0,
+            "regression_count": sum(regressions),
+            "regression_definition": (
+                "baseline_correct_and_candidate_incorrect"
+                if baseline_parameters is not None
+                else "NOT_EVALUATED"
+            ),
             "metric_version": METRIC_VERSION,
         }
         self._put("benchmark_runs", _id("KBENCH"), "VERIFIED", payload)
         return payload
 
     def canary(
-        self, checkpoint_id: str, cases: list[dict[str, Any]], baseline: float
+        self,
+        checkpoint_id: str,
+        cases: list[dict[str, Any]],
+        baseline: float,
+        *,
+        window_size: int = 100,
+        max_regressions: int = 0,
+        minimum_success_lift: float = 0.0,
     ) -> str:
+        if window_size < 1:
+            raise ValueError("Canary window_size must be positive")
+        if max_regressions < 0:
+            raise ValueError("Canary max_regressions cannot be negative")
+        if not cases:
+            raise ValueError("Canary requires at least one case")
         checkpoint = self._get("policy_parameters", checkpoint_id)
-        result = self.benchmark(cases, checkpoint["payload"]["parameters"], "canary")
+        window = cases[-window_size:]
+        baseline_parameters = self._parameters("ACTIVE")
+        baseline_result = self.benchmark(window, baseline_parameters, "canary-baseline")
+        if not math.isclose(
+            baseline_result["task_success_rate"], baseline, abs_tol=1e-12
+        ):
+            raise ValueError("Supplied baseline does not match the canary window")
+        result = self.benchmark(
+            window,
+            checkpoint["payload"]["parameters"],
+            "canary",
+            baseline_parameters=baseline_parameters,
+        )
+        lift = result["task_success_rate"] - baseline
         passed = (
-            result["task_success_rate"] > baseline and result["regression_count"] == 0
+            lift > minimum_success_lift
+            and result["regression_count"] <= max_regressions
         )
         return self._put(
             "canary_results",
@@ -535,6 +624,19 @@ class DCMLLearning:
                 "checkpoint_hash": checkpoint["content_hash"],
                 "passed": passed,
                 "baseline": baseline,
+                "baseline_metrics": baseline_result,
+                "window": {
+                    "definition": "last N cases in caller-supplied order, inclusive",
+                    "requested_size": window_size,
+                    "evaluated_size": len(window),
+                    "start_index": len(cases) - len(window),
+                    "end_index_inclusive": len(cases) - 1,
+                },
+                "thresholds": {
+                    "max_regressions": max_regressions,
+                    "minimum_success_lift_exclusive": minimum_success_lift,
+                },
+                "success_lift": lift,
                 "metrics": result,
             },
         )
@@ -542,14 +644,21 @@ class DCMLLearning:
     def promote(self, checkpoint_id: str, canary_id: str, approval_id: str) -> None:
         canary = self._get("canary_results", canary_id)
         checkpoint = self._get("policy_parameters", checkpoint_id)
-        if not self.authority.verify(
-            approval_id, f"promote:{checkpoint_id}", checkpoint["content_hash"]
-        ):
-            raise PermissionError("Signed founder promotion is invalid")
         if not canary["payload"]["passed"]:
             raise PermissionError("Canary failed")
-        if checkpoint["content_hash"] != canary["payload"]["checkpoint_hash"]:
+        if not FounderAuthority._same(
+            checkpoint["content_hash"], canary["payload"]["checkpoint_hash"]
+        ):
             raise PermissionError("Canary checkpoint hash mismatch")
+        if not self.authority.authorize(
+            approval_id,
+            f"promote:{checkpoint_id}:{canary_id}",
+            checkpoint["content_hash"],
+            expected_environment=self.environment,
+            expected_tenant=self.tenant,
+            expected_scope="policy-promotion",
+        ):
+            raise PermissionError("Signed founder promotion is invalid")
         self.store.execute(
             "UPDATE policy_parameters SET status='ROLLED_BACK',updated_at=? WHERE status='ACTIVE'",
             (now(),),
@@ -561,8 +670,13 @@ class DCMLLearning:
 
     def rollback_policy(self, checkpoint_id: str, approval_id: str) -> None:
         target = self._get("policy_parameters", checkpoint_id)
-        if not self.authority.verify(
-            approval_id, f"rollback:{checkpoint_id}", target["content_hash"]
+        if not self.authority.authorize(
+            approval_id,
+            f"rollback:{checkpoint_id}",
+            target["content_hash"],
+            expected_environment=self.environment,
+            expected_tenant=self.tenant,
+            expected_scope="policy-rollback",
         ):
             raise PermissionError("Signed founder rollback is invalid")
         self.store.execute(
@@ -675,7 +789,9 @@ class DCMLLearning:
             raise ValueError("Unsupported record type")
         return [
             {**row, "payload": json.loads(row["payload"])}
-            for row in self.store.query(f"SELECT * FROM {table} ORDER BY created_at")
+            for row in self.store.query(
+                f"SELECT * FROM {table} ORDER BY created_at"  # noqa: S608 -- table is allowlisted above
+            )
         ]
 
     def consolidate(self, evidence_threshold: float = 0.7) -> str:

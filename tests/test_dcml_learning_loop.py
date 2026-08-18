@@ -37,7 +37,13 @@ def add_verified(dcml, index, strategy="verified_procedure", reward=1.0, private
     )
     evaluation = dcml.evaluate(exp)
     credit = dcml.assign_credit(exp, evaluation)
-    approval = dcml.authority.sign(f"learn:{exp}", "experience-learning")
+    approval = dcml.authority.sign(
+        f"learn:{exp}",
+        "experience-learning",
+        dcml._experience_digest(dcml._get("experiences_v2", exp)["payload"]),
+        environment=dcml.environment,
+        tenant=dcml.tenant,
+    )
     dcml.approve_for_learning(exp, approval)
     return exp, evaluation, credit, approval
 
@@ -71,9 +77,11 @@ def test_complete_policy_learning_improves_heldout_persists_and_rolls_back(tmp_p
     canary_id = dcml.canary(checkpoint_id, cases, baseline["task_success_rate"])
     assert dcml._get("canary_results", canary_id)["payload"]["passed"] is True
     promotion = dcml.authority.sign(
-        f"promote:{checkpoint_id}",
+        f"promote:{checkpoint_id}:{canary_id}",
         "policy-promotion",
         dcml._get("policy_parameters", checkpoint_id)["content_hash"],
+        environment=dcml.environment,
+        tenant=dcml.tenant,
     )
     dcml.promote(checkpoint_id, canary_id, promotion)
     post = dcml.benchmark(cases, phase="post-learning")
@@ -86,6 +94,8 @@ def test_complete_policy_learning_improves_heldout_persists_and_rolls_back(tmp_p
         "rollback:KPOLICY-BASELINE",
         "policy-rollback",
         reopened._get("policy_parameters", "KPOLICY-BASELINE")["content_hash"],
+        environment=reopened.environment,
+        tenant=reopened.tenant,
     )
     reopened.rollback_policy("KPOLICY-BASELINE", rollback)
     assert reopened.select_strategy(cases[0]["input_state"]) == "baseline"
@@ -133,8 +143,21 @@ def test_dataset_split_reproducible_and_approval_tamper_fails(tmp_path):
     two = dcml._get("datasets", dcml.build_dataset(seed=99))["payload"]
     assert one["split"] == two["split"]
     exp = one["source_experience_ids"][0]
-    approval = dcml.authority.sign(f"learn:{exp}", "test")
-    assert dcml.authority.verify(approval, f"learn:{exp}")
+    digest = dcml._experience_digest(dcml._get("experiences_v2", exp)["payload"])
+    approval = dcml.authority.sign(
+        f"learn:{exp}",
+        "test",
+        digest,
+        environment=dcml.environment,
+        tenant=dcml.tenant,
+    )
+    assert dcml.authority.verify(
+        approval,
+        f"learn:{exp}",
+        digest,
+        expected_environment=dcml.environment,
+        expected_tenant=dcml.tenant,
+    )
     record = store.query(
         "SELECT payload FROM signed_approvals WHERE id=?", (approval,)
     )[0]
@@ -144,7 +167,13 @@ def test_dataset_split_reproducible_and_approval_tamper_fails(tmp_path):
         "UPDATE signed_approvals SET payload=? WHERE id=?",
         (json.dumps(tampered), approval),
     )
-    assert not dcml.authority.verify(approval, f"learn:{exp}")
+    assert not dcml.authority.verify(
+        approval,
+        f"learn:{exp}",
+        digest,
+        expected_environment=dcml.environment,
+        expected_tenant=dcml.tenant,
+    )
 
 
 def test_generated_and_simulated_evidence_never_verify_external_result(tmp_path):
@@ -178,9 +207,50 @@ def test_regressive_canary_blocks_promotion(tmp_path):
     canary = dcml.canary(checkpoint, cases, baseline=1.0)
     assert dcml._get("canary_results", canary)["status"] == "BLOCKED"
     approval = dcml.authority.sign(
-        f"promote:{checkpoint}",
-        "test",
+        f"promote:{checkpoint}:{canary}",
+        "policy-promotion",
         dcml._get("policy_parameters", checkpoint)["content_hash"],
+        environment=dcml.environment,
+        tenant=dcml.tenant,
     )
     with pytest.raises(PermissionError, match="Canary failed"):
         dcml.promote(checkpoint, canary, approval)
+
+
+def test_canary_regression_window_boundaries_and_thresholds_agree(tmp_path):
+    dcml, _ = manager(tmp_path)
+    checkpoint = dcml._put(
+        "policy_parameters",
+        "KPOLICY-WINDOW",
+        "CANDIDATE",
+        {
+            "parameters": {
+                "baseline": [0.0, 0.0, 0.0, 0.0],
+                "verified_procedure": [1.0, 0.0, 0.0, 0.0],
+            },
+            "trained": True,
+        },
+    )
+    cases = [
+        {"input_state": {"case": 0}, "best_strategy": "baseline"},
+        {"input_state": {"case": 1}, "best_strategy": "verified_procedure"},
+        {"input_state": {"case": 2}, "best_strategy": "verified_procedure"},
+    ]
+    last_two = dcml.canary(checkpoint, cases, baseline=0.0, window_size=2)
+    last_two_payload = dcml._get("canary_results", last_two)["payload"]
+    assert last_two_payload["passed"] is True
+    assert last_two_payload["metrics"]["regression_count"] == 0
+    assert last_two_payload["window"]["start_index"] == 1
+    assert last_two_payload["window"]["end_index_inclusive"] == 2
+
+    full_blocked = dcml.canary(
+        checkpoint, cases, baseline=1 / 3, window_size=3, max_regressions=0
+    )
+    blocked_payload = dcml._get("canary_results", full_blocked)["payload"]
+    assert blocked_payload["passed"] is False
+    assert blocked_payload["metrics"]["regression_count"] == 1
+
+    full_allowed = dcml.canary(
+        checkpoint, cases, baseline=1 / 3, window_size=3, max_regressions=1
+    )
+    assert dcml._get("canary_results", full_allowed)["payload"]["passed"] is True

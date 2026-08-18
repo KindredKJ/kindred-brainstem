@@ -5,14 +5,19 @@ from __future__ import annotations
 import json
 import sqlite3
 import uuid
+from collections.abc import Iterator
 from contextlib import contextmanager
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any, Iterator
+from typing import Any
 
 
 def now() -> str:
-    return datetime.now(timezone.utc).isoformat()
+    return datetime.now(UTC).isoformat()
+
+
+class IdempotencyConflict(RuntimeError):
+    """An idempotency identity was reused for different immutable content."""
 
 
 class StateStore:
@@ -27,13 +32,15 @@ class StateStore:
         self._migrate_dcml_learning_loop()
         self._migrate_strata_client_boundary()
         self._migrate_dcml_advanced_learning()
+        self._migrate_security_and_idempotency()
 
     @contextmanager
     def connect(self) -> Iterator[sqlite3.Connection]:
-        connection = sqlite3.connect(self.path)
+        connection = sqlite3.connect(self.path, timeout=30)
         connection.row_factory = sqlite3.Row
         connection.execute("PRAGMA foreign_keys=ON")
         connection.execute("PRAGMA journal_mode=WAL")
+        connection.execute("PRAGMA busy_timeout=30000")
         try:
             yield connection
             connection.commit()
@@ -254,6 +261,91 @@ class StateStore:
                 ("dcml_advanced_learning", now()),
             )
 
+    def _migrate_security_and_idempotency(self) -> None:
+        """Add nonce replay protection and durable submission idempotency."""
+        with self.connect() as db:
+            db.executescript("""
+            CREATE TABLE IF NOT EXISTS approval_nonces (
+              nonce TEXT PRIMARY KEY, approval_id TEXT NOT NULL UNIQUE,
+              used_at TEXT, created_at TEXT NOT NULL,
+              FOREIGN KEY(approval_id) REFERENCES signed_approvals(id)
+            );
+            CREATE TABLE IF NOT EXISTS submissions (
+              kind TEXT NOT NULL, idempotency_key TEXT NOT NULL,
+              scope TEXT NOT NULL, request_hash TEXT NOT NULL,
+              status TEXT NOT NULL, response TEXT, error TEXT,
+              created_at TEXT NOT NULL, updated_at TEXT NOT NULL,
+              PRIMARY KEY(kind, idempotency_key)
+            );
+            INSERT OR IGNORE INTO schema_migrations VALUES (
+              5, 'authenticated_decisions_and_idempotent_submissions', datetime('now')
+            );
+            """)
+
+    def claim_submission(
+        self, kind: str, idempotency_key: str, scope: str, request_hash: str
+    ) -> tuple[str, dict[str, Any] | None]:
+        """Atomically claim work or return the prior completed response."""
+        timestamp = now()
+        with self.connect() as db:
+            db.execute("BEGIN IMMEDIATE")
+            row = db.execute(
+                "SELECT * FROM submissions WHERE kind=? AND idempotency_key=?",
+                (kind, idempotency_key),
+            ).fetchone()
+            if row is None:
+                db.execute(
+                    "INSERT INTO submissions VALUES(?,?,?,?,?,?,?,?,?)",
+                    (
+                        kind,
+                        idempotency_key,
+                        scope,
+                        request_hash,
+                        "PROCESSING",
+                        None,
+                        None,
+                        timestamp,
+                        timestamp,
+                    ),
+                )
+                return "CLAIMED", None
+            existing = dict(row)
+            if existing["scope"] != scope or existing["request_hash"] != request_hash:
+                raise IdempotencyConflict(
+                    "idempotency key reused with different scope or content"
+                )
+            response = (
+                json.loads(existing["response"]) if existing["response"] else None
+            )
+            return existing["status"], response
+
+    def complete_submission(
+        self, kind: str, idempotency_key: str, response: dict[str, Any]
+    ) -> None:
+        with self.connect() as db:
+            updated = db.execute(
+                "UPDATE submissions SET status='COMPLETED',response=?,error=NULL,updated_at=? "
+                "WHERE kind=? AND idempotency_key=? AND status='PROCESSING'",
+                (json.dumps(response, sort_keys=True), now(), kind, idempotency_key),
+            )
+            if updated.rowcount != 1:
+                raise RuntimeError("Submission was not in PROCESSING state.")
+
+    def fail_submission(self, kind: str, idempotency_key: str, error: str) -> None:
+        with self.connect() as db:
+            db.execute(
+                "UPDATE submissions SET status='FAILED',error=?,updated_at=? "
+                "WHERE kind=? AND idempotency_key=? AND status='PROCESSING'",
+                (error, now(), kind, idempotency_key),
+            )
+
+    def submission(self, kind: str, idempotency_key: str) -> dict[str, Any] | None:
+        rows = self.query(
+            "SELECT * FROM submissions WHERE kind=? AND idempotency_key=?",
+            (kind, idempotency_key),
+        )
+        return rows[0] if rows else None
+
     def event(self, kind: str, payload: dict[str, Any]) -> str:
         event_id = f"KEVT-{uuid.uuid4().hex[:12].upper()}"
         record = {"id": event_id, "kind": kind, "payload": payload, "created_at": now()}
@@ -400,7 +492,7 @@ class StateStore:
     @classmethod
     def restore(
         cls, backup: Path, destination: Path, audit_path: Path | None = None
-    ) -> "StateStore":
+    ) -> StateStore:
         """Restore a validated SQLite backup into a new canonical location."""
         backup = backup.expanduser().resolve()
         if not backup.is_file():
@@ -427,6 +519,8 @@ class StateStore:
                 "approvals",
             )
             return {
-                name: db.execute(f"SELECT COUNT(*) FROM {name}").fetchone()[0]
+                name: db.execute(
+                    f"SELECT COUNT(*) FROM {name}"  # noqa: S608 -- names is a fixed internal tuple
+                ).fetchone()[0]
                 for name in names
             }

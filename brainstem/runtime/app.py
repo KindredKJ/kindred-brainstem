@@ -7,11 +7,11 @@ from pathlib import Path
 from typing import Any
 
 from fastapi import FastAPI, HTTPException
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict, Field
 
 from brainstem.runtime.paths import global_state_dir
-from brainstem.runtime.service import RuntimeService
-from brainstem.runtime.store import StateStore
+from brainstem.runtime.service import RuntimeService, SubmissionInProgress
+from brainstem.runtime.store import IdempotencyConflict, StateStore
 
 
 class SessionRequest(BaseModel):
@@ -22,6 +22,7 @@ class SessionRequest(BaseModel):
 class ChatRequest(BaseModel):
     session_id: str
     message: str
+    idempotency_key: str = Field(min_length=16, max_length=200)
 
 
 class SwitchRequest(BaseModel):
@@ -29,7 +30,9 @@ class SwitchRequest(BaseModel):
 
 
 class LearningDecision(BaseModel):
-    founder: str
+    model_config = ConfigDict(extra="forbid")
+
+    approval_id: str
 
 
 class LearningEvaluation(BaseModel):
@@ -40,6 +43,7 @@ class LearningEvaluation(BaseModel):
 class DCMLCycleRequest(BaseModel):
     session_id: str
     message: str
+    idempotency_key: str = Field(min_length=16, max_length=200)
 
 
 def build_app(
@@ -58,7 +62,9 @@ def build_app(
 
     @app.post("/dcml/cycle")
     def dcml_cycle(request: DCMLCycleRequest) -> dict[str, Any]:
-        return runtime.chat(request.session_id, request.message)
+        return runtime.chat(
+            request.session_id, request.message, request.idempotency_key
+        )
 
     @app.get("/dcml/experiences")
     def dcml_experiences() -> list[dict[str, Any]]:
@@ -204,9 +210,13 @@ def build_app(
     @app.post("/chat")
     def chat(request: ChatRequest) -> dict[str, Any]:
         try:
-            return runtime.chat(request.session_id, request.message)
+            return runtime.chat(
+                request.session_id, request.message, request.idempotency_key
+            )
         except KeyError as exc:
             raise HTTPException(404, str(exc)) from exc
+        except (IdempotencyConflict, SubmissionInProgress, ValueError) as exc:
+            raise HTTPException(409, str(exc)) from exc
         except RuntimeError as exc:
             raise HTTPException(503, str(exc)) from exc
 
@@ -249,30 +259,40 @@ def build_app(
             raise HTTPException(409, str(exc)) from exc
 
     @app.post("/learning/{learning_id}/promote")
-    def learning_promote(learning_id: str) -> dict[str, Any]:
+    def learning_promote(learning_id: str, request: LearningDecision) -> dict[str, Any]:
         try:
-            return runtime.model.promote_learning(learning_id)
+            return runtime.model.promote_learning(learning_id, request.approval_id)
         except (KeyError, ValueError) as exc:
             raise HTTPException(409, str(exc)) from exc
+        except PermissionError as exc:
+            raise HTTPException(403, str(exc)) from exc
 
     @app.post("/learning/{learning_id}/activate")
-    def learning_activate(learning_id: str) -> dict[str, Any]:
+    def learning_activate(
+        learning_id: str, request: LearningDecision
+    ) -> dict[str, Any]:
         try:
-            return runtime.model.activate_learning(learning_id)
+            return runtime.model.activate_learning(learning_id, request.approval_id)
         except (KeyError, ValueError) as exc:
             raise HTTPException(409, str(exc)) from exc
+        except PermissionError as exc:
+            raise HTTPException(403, str(exc)) from exc
 
     @app.post("/learning/{learning_id}/rollback")
-    def learning_rollback(learning_id: str) -> dict[str, Any]:
+    def learning_rollback(
+        learning_id: str, request: LearningDecision
+    ) -> dict[str, Any]:
         try:
-            return runtime.model.rollback_learning(learning_id)
+            return runtime.model.rollback_learning(learning_id, request.approval_id)
         except (KeyError, ValueError) as exc:
             raise HTTPException(409, str(exc)) from exc
+        except PermissionError as exc:
+            raise HTTPException(403, str(exc)) from exc
 
     @app.post("/learning/{learning_id}/approve")
     def learning_approve(learning_id: str, request: LearningDecision) -> dict[str, Any]:
         try:
-            return runtime.model.approve_learning(learning_id, request.founder)
+            return runtime.model.approve_learning(learning_id, request.approval_id)
         except (KeyError, ValueError) as exc:
             raise HTTPException(409, str(exc)) from exc
         except PermissionError as exc:
@@ -281,7 +301,7 @@ def build_app(
     @app.post("/learning/{learning_id}/reject")
     def learning_reject(learning_id: str, request: LearningDecision) -> dict[str, Any]:
         try:
-            return runtime.model.reject_learning(learning_id, request.founder)
+            return runtime.model.reject_learning(learning_id, request.approval_id)
         except (KeyError, ValueError) as exc:
             raise HTTPException(409, str(exc)) from exc
         except PermissionError as exc:
@@ -328,11 +348,15 @@ def build_app(
         return {"checkpoint_id": runtime.model.checkpoint()}
 
     @app.post("/cognitive/rollback/{checkpoint_id}")
-    def rollback(checkpoint_id: str) -> dict[str, Any]:
+    def rollback(checkpoint_id: str, request: LearningDecision) -> dict[str, Any]:
         try:
-            return runtime.model.rollback(checkpoint_id).model_dump()
+            return runtime.model.rollback(
+                checkpoint_id, request.approval_id
+            ).model_dump()
         except KeyError as exc:
             raise HTTPException(404, "Checkpoint not found") from exc
+        except PermissionError as exc:
+            raise HTTPException(403, str(exc)) from exc
 
     @app.get("/memory/consolidations")
     def memory_consolidations() -> list[dict[str, Any]]:

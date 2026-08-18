@@ -7,7 +7,8 @@ import json
 import math
 import uuid
 from collections import defaultdict
-from typing import Any, Callable
+from collections.abc import Callable
+from typing import Any
 
 from brainstem.runtime.store import StateStore, now
 
@@ -53,7 +54,10 @@ class AdvancedDCML:
         return record_id
 
     def _get(self, table: str, record_id: str) -> dict[str, Any]:
-        rows = self.store.query(f"SELECT * FROM {table} WHERE id=?", (record_id,))
+        rows = self.store.query(
+            f"SELECT * FROM {table} WHERE id=?",  # noqa: S608 -- internal record tables only
+            (record_id,),
+        )
         if not rows:
             raise KeyError(record_id)
         return {**rows[0], "payload": json.loads(rows[0]["payload"])}
@@ -495,11 +499,11 @@ class AdvancedDCML:
             "confidence": 0.5,
             "provenance": provenance,
             "version": 1,
-            "approval_state": "APPROVED",
-            "approval_id": approval_id,
+            "approval_state": "UNVERIFIED",
+            "submitted_approval_reference": approval_id,
             "rollback_state": "AVAILABLE",
         }
-        return self._put("skill_records", _id("KSKILL"), "APPROVED", payload)
+        return self._put("skill_records", _id("KSKILL"), "PROPOSED", payload)
 
     def create_mission(
         self,

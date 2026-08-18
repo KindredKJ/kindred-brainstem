@@ -192,7 +192,7 @@ def test_long_horizon_mission_assigns_delayed_temporal_credit(tmp_path):
     assert values[-1] > values[0]
 
 
-def test_versioned_skill_contains_governed_execution_contract(tmp_path):
+def test_versioned_skill_stays_proposed_with_unverified_approval_reference(tmp_path):
     model = dcml(tmp_path)
     skill = model.advanced.create_skill(
         "verified-repair",
@@ -209,7 +209,9 @@ def test_versioned_skill_contains_governed_execution_contract(tmp_path):
         "approval-1",
     )
     payload = model.advanced._get("skill_records", skill)["payload"]
-    assert payload["version"] == 1 and payload["approval_state"] == "APPROVED"
+    assert payload["version"] == 1 and payload["approval_state"] == "UNVERIFIED"
+    assert payload["submitted_approval_reference"] == "approval-1"
+    assert model.advanced._get("skill_records", skill)["status"] == "PROPOSED"
     assert payload["rollback_state"] == "AVAILABLE"
 
 
