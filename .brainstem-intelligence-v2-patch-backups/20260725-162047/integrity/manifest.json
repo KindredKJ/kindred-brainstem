@@ -1,0 +1,82 @@
+{
+  "schema": "kindred.brainstem.integrity.v2",
+  "installerVersion": "2.0.0",
+  "lockedAtUtc": "2026-07-25T17:29:23.7614778Z",
+  "files": [
+    {
+      "path": "config\\agi.config.json",
+      "sha256": "4be36255b2e9f77b9486c6cde0d393944bbde850e3bd0fff5ca69c50829500c4",
+      "bytes": 555
+    },
+    {
+      "path": "config\\intelligence.config.json",
+      "sha256": "df44fbc72aed4b54f00ad3ed12dcd606a6697d42a4adbad8cc7ff88b03f4efe9",
+      "bytes": 900
+    },
+    {
+      "path": "config\\provider-registry.json",
+      "sha256": "cb53f6920539cb64b014149e3415188c1475d2c9d1a7f43ebdf8fdb766e11dc4",
+      "bytes": 2511
+    },
+    {
+      "path": "Get-BrainstemProviderStatus.ps1",
+      "sha256": "3b73a38bf10338fa812cbb6c940c1e1c0f741a588bdcc932c8cae1d01d48bb5d",
+      "bytes": 600
+    },
+    {
+      "path": "INTELLIGENCE-V2.md",
+      "sha256": "9e9450b65fac1790726d9280e0c38cf8aed6bbf783b5c84096406675e64448b9",
+      "bytes": 828
+    },
+    {
+      "path": "Invoke-BrainstemAGI.ps1",
+      "sha256": "fb2ee9fc2368f332f7cc8d1295e831ff608e308d23aff959a813d780e0f4248f",
+      "bytes": 562
+    },
+    {
+      "path": "Invoke-BrainstemLongTask.ps1",
+      "sha256": "189f1a863ed0fd58c3e465b64be4fe5eb9d7aec6f8e16264cd7fc8f1e503df9c",
+      "bytes": 672
+    },
+    {
+      "path": "modules\\Brainstem.Benchmarks.psm1",
+      "sha256": "813d55241100ea6017df5c9a62f2fba4b15a48a7fee87fefc0361f7e36373273",
+      "bytes": 8076
+    },
+    {
+      "path": "modules\\Brainstem.Cognition.psm1",
+      "sha256": "a9a1e4c94fb44f135837897a3c467b901581d8d86b568fad6911d97b11ffb6dd",
+      "bytes": 5782
+    },
+    {
+      "path": "modules\\Brainstem.Governance.psm1",
+      "sha256": "370b6d73a0cacfa35805164c20fb64a828c8d14724f74c16b16c0b4f02ff4bbc",
+      "bytes": 5139
+    },
+    {
+      "path": "modules\\Brainstem.IntelligenceV2.psm1",
+      "sha256": "9af6b36b3a682d6393da364c24ad492c4d40e1b0d1ddf635fa5ef6b9ce64796e",
+      "bytes": 51717
+    },
+    {
+      "path": "modules\\Brainstem.Memory.psm1",
+      "sha256": "12c09d180a790185251753469a5a6b381114e84f7982f16d8f76a866cc0a616c",
+      "bytes": 4894
+    },
+    {
+      "path": "README.md",
+      "sha256": "052d782a9673421087ea11364a02adb774932a293cfadeb4dd39e2f88a7240cc",
+      "bytes": 982
+    },
+    {
+      "path": "tests\\Invoke-BrainstemAGITests.ps1",
+      "sha256": "b54d3704ee64c71cc1f7a7c4648bff390ffce63c55b99cb3fd2a4d7acb1bf092",
+      "bytes": 3162
+    },
+    {
+      "path": "tests\\Invoke-BrainstemIntelligenceV2Tests.ps1",
+      "sha256": "c92cc4d22c63a2ce71e65c13ad764abf4241b16c432a77a059bda695b00f7360",
+      "bytes": 897
+    }
+  ]
+}

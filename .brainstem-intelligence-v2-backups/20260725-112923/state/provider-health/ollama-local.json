@@ -1,0 +1,9 @@
+{
+  "providerId": "ollama-local",
+  "consecutiveFailures": 0,
+  "circuitOpenUntilUtc": null,
+  "lastSuccessUtc": "2026-07-25T17:28:16.1368104Z",
+  "lastFailureUtc": null,
+  "lastLatencyMs": 19732.83,
+  "totalCalls": 1
+}

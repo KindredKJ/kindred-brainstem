@@ -1,0 +1,84 @@
+{
+  "schema": "kindred.brainstem.long-task.v1",
+  "id": "579e05dd627d487d8be66f574508b9ef",
+  "objective": "Validate checkpointing.",
+  "status": "COMPLETED",
+  "createdAtUtc": "2026-07-25T17:29:26.1224719Z",
+  "updatedAtUtc": "2026-07-25T17:29:26.1856755Z",
+  "maximumSteps": 5,
+  "maximumMinutes": 5,
+  "currentStepIndex": 2,
+  "plan": {
+    "objective": "Validate checkpointing.",
+    "successCriteria": [
+      "All internal steps checkpointed.",
+      "No external action executes without approval."
+    ],
+    "steps": [
+      {
+        "id": "STEP-001",
+        "title": "Analyze objective",
+        "instruction": "Record bounded analysis.",
+        "kind": "analysis",
+        "requiresExternalAction": false,
+        "completionCheck": "Checkpoint exists."
+      },
+      {
+        "id": "STEP-002",
+        "title": "Record conclusion",
+        "instruction": "Record bounded conclusion.",
+        "kind": "checkpoint",
+        "requiresExternalAction": false,
+        "completionCheck": "Conclusion exists."
+      }
+    ],
+    "risks": [
+      "Generic steps require specialized executors for domain-specific work."
+    ],
+    "stopConditions": [
+      "External action required.",
+      "Budget exceeded."
+    ]
+  },
+  "checkpoints": [
+    {
+      "id": "77d1bb51a35542779d7a8b6b578dd722",
+      "stepIndex": 0,
+      "stepId": "STEP-001",
+      "title": "Analyze objective",
+      "completedAtUtc": "2026-07-25T17:29:26.1431053Z",
+      "output": {
+        "status": "COMPLETED_INTERNAL",
+        "summary": "Offline checkpoint completed: Analyze objective",
+        "evidence": [
+          "Task state advanced from index 0."
+        ],
+        "uncertainties": [
+          "No model inference occurred in offline test mode."
+        ],
+        "proposedExternalActions": []
+      }
+    },
+    {
+      "id": "6dc02c0607de443eb119dda85aafd6f6",
+      "stepIndex": 1,
+      "stepId": "STEP-002",
+      "title": "Record conclusion",
+      "completedAtUtc": "2026-07-25T17:29:26.1612179Z",
+      "output": {
+        "status": "COMPLETED_INTERNAL",
+        "summary": "Offline checkpoint completed: Record conclusion",
+        "evidence": [
+          "Task state advanced from index 1."
+        ],
+        "uncertainties": [
+          "No model inference occurred in offline test mode."
+        ],
+        "proposedExternalActions": []
+      }
+    }
+  ],
+  "pendingExternalAction": null,
+  "failure": null,
+  "offlineTestMode": true
+}

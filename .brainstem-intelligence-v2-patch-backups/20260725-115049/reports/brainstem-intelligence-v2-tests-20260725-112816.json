@@ -1,0 +1,47 @@
+{
+  "schema": "kindred.brainstem.v2-tests.v1",
+  "runAtUtc": "2026-07-25T17:28:16.1647086Z",
+  "passed": false,
+  "results": [
+    {
+      "Name": "RegistryCoverage",
+      "Status": "PASS",
+      "Evidence": "Providers=6"
+    },
+    {
+      "Name": "PrivacyRouting",
+      "Status": "PASS",
+      "Evidence": "PrivacyProviders=1; CloudCount=0"
+    },
+    {
+      "Name": "StructuredValidation",
+      "Status": "PASS",
+      "Evidence": "Valid=True"
+    },
+    {
+      "Name": "BenchmarkIsolation",
+      "Status": "FAIL",
+      "Evidence": "OrdinaryHits=3"
+    },
+    {
+      "Name": "ExternalApprovalSingleUse",
+      "Status": "PASS",
+      "Evidence": "Initial=True; Reuse=False"
+    },
+    {
+      "Name": "LongTaskCheckpoint",
+      "Status": "PASS",
+      "Evidence": "Status=COMPLETED; Checkpoints=2"
+    },
+    {
+      "Name": "AuditHashChain",
+      "Status": "PASS",
+      "Evidence": "Events=3; Error="
+    },
+    {
+      "Name": "LiveStructuredProvider",
+      "Status": "PASS",
+      "Evidence": "ollama-local: PASS"
+    }
+  ]
+}

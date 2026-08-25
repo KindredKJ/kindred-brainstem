@@ -1,0 +1,184 @@
+{
+  "schemaVersion": "1.0",
+  "managedBy": "KINDRED_OMNIFRAME_WAVE12",
+  "component": "kindred-brainstem",
+  "class": "AGENT_ORCHESTRATION",
+  "kind": "CANONICAL_REPOSITORY",
+  "standalonePurpose": "",
+  "omniframeRole": {
+    "strata": [
+      "STRATA-INTELLIGENCE",
+      "STRATA-COMMUNICATIONS"
+    ],
+    "ports": [
+      "PORT-5",
+      "PORT-11",
+      "PORT-3",
+      "PORT-9"
+    ],
+    "coordinate": {
+      "x": 3,
+      "xMeaning": "AGENT_ORCHESTRATION",
+      "y": [
+        5,
+        3
+      ],
+      "yMeaning": [
+        "STRATA-INTELLIGENCE",
+        "STRATA-COMMUNICATIONS"
+      ],
+      "z": 11,
+      "zMeaning": "ecosystem",
+      "tau": {
+        "sufficiencyState": "INSUFFICIENT_STATIC_EVIDENCE",
+        "priority": 90.0,
+        "requiredStaticCoverage": 72.2,
+        "localBehaviorEvidence": null,
+        "runtimeVerified": false,
+        "productionOperational": false
+      }
+    }
+  },
+  "currentEvidence": {
+    "sufficiencyStatus": "INSUFFICIENT_STATIC_EVIDENCE",
+    "priorityScore": 90,
+    "requiredMissing": [
+      "security",
+      "observability",
+      "resilience",
+      "recovery",
+      "powerOut"
+    ],
+    "recommendedMissing": [
+      "contractTesting",
+      "staticQuality",
+      "performance",
+      "deployment",
+      "release"
+    ],
+    "specializedUnassessed": [
+      "planningEvaluation",
+      "toolContracts",
+      "loopDetection",
+      "memoryBoundary",
+      "missionBudget"
+    ]
+  },
+  "strengths": [
+    "NETWORK_FABRIC",
+    "EVIDENCE_INTEGRITY",
+    "AGENTIC_ORCHESTRATION",
+    "MODEL_INTELLIGENCE",
+    "INFRASTRUCTURE_RUNTIME"
+  ],
+  "weaknesses": [
+    "security",
+    "observability",
+    "resilience",
+    "recovery",
+    "powerOut",
+    "contractTesting",
+    "staticQuality",
+    "performance",
+    "deployment",
+    "release",
+    "planningEvaluation",
+    "toolContracts",
+    "loopDetection",
+    "memoryBoundary",
+    "missionBudget"
+  ],
+  "differentiation": {
+    "status": "HIGH_DIFFERENTIATION_HYPOTHESIS",
+    "heuristicScore": 83,
+    "noveltyClaimVerified": false,
+    "marketDemandVerified": false,
+    "monetizationVerified": false
+  },
+  "pipelines": {
+    "inheritedSharedTrunks": [
+      "contractTesting",
+      "performance",
+      "staticQuality",
+      "release",
+      "observability",
+      "deployment",
+      "recovery",
+      "powerOut",
+      "security",
+      "resilience"
+    ],
+    "ingress": [
+      "identity-bound-input",
+      "component-data",
+      "mission-or-event"
+    ],
+    "egress": [
+      "result",
+      "telemetry",
+      "evidence"
+    ]
+  },
+  "authority": {
+    "powerIn": [
+      "identity",
+      "policy",
+      "bounded-capability",
+      "lease-or-budget"
+    ],
+    "powerOut": [
+      "bounded-dispatch",
+      "signed-intent",
+      "evidenced-output"
+    ],
+    "invariant": "POWER_OUT <= AUTHORIZED_POWER_IN",
+    "founderRootAuthority": false,
+    "externalAuthority": false
+  },
+  "failure": {
+    "drains": [
+      "deny",
+      "retry-bounded",
+      "quarantine",
+      "dead-letter",
+      "rollback-or-compensation",
+      "backpressure"
+    ],
+    "circulation": [
+      "observe-verify",
+      "evidence-reconcile",
+      "heartbeat-lease",
+      "resource-acquire-release"
+    ],
+    "retryMustBeBounded": true,
+    "failClosedExternalBoundary": true
+  },
+  "builder": {
+    "preferredRole": "MODEL_ANALYST",
+    "eligible": false,
+    "eligibilityRequires": [
+      "local standard contract valid",
+      "runtime or inherited verification",
+      "no quarantined validation failure",
+      "explicit invocation contract before autonomous execution"
+    ]
+  },
+  "commerce": {
+    "productHypothesisIds": [
+      "KBOX-EVIDENCE-BOUND-AGENTIC-OPS"
+    ],
+    "externalBuyerDemandVerified": false,
+    "willingnessToPayVerified": false,
+    "externalOutcomeVerified": false
+  },
+  "reality": {
+    "localStandardRegistered": true,
+    "runtimeVerified": false,
+    "integrationVerified": false,
+    "sandboxVerified": false,
+    "stagingVerified": false,
+    "externalOperational": false,
+    "productionAuthorized": false,
+    "productionOperational": false
+  }
+}

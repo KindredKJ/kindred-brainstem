@@ -1,0 +1,223 @@
+{
+  "Schema": "kindred.brainstem.intelligence-cycle.v2",
+  "CycleId": "1ff8f3bb9ed94002accf3557529cb9e7",
+  "StartedAtUtc": "2026-07-25T22:21:09.7805365Z",
+  "CompletedAtUtc": "2026-07-25T22:23:47.0099660Z",
+  "Objective": "Audit Brainstem and identify the next highest-value AGI capability gap.",
+  "RoutingMode": "LocalFirst",
+  "Status": "COMPLETED_MODEL_BACKED",
+  "Candidate": {
+    "answer": "substantive audit",
+    "currentState": "@{id=state1; description=describe state}",
+    "strengths": [
+      "AGI strength, AI strengthening capability gap."
+    ],
+    "gaps": [
+      {
+        "id": "GAP-001",
+        "title": "Next Highest Value AGI Capability Gap",
+        "severity": "high",
+        "evidence": [
+          "Observation of new feature or improvement in existing system"
+        ],
+        "impact": "Improved performance, security enhancements etc.",
+        "recommendation": "Development and implementation"
+      }
+    ],
+    "nextHighestValueCapability": {
+      "name": "AI capability",
+      "whyNow": "New technology improves the current capabilities",
+      "acceptanceCriteria": [
+        "A measurable benchmark passes repeatedly without bypassing governance."
+      ],
+      "implementationSequence": [
+        "Define the acceptance test.",
+        "Implement the capability.",
+        "Run regression and independent validation."
+      ]
+    },
+    "evidence": [
+      {
+        "claim": "Observation of new feature or improvement in existing system",
+        "support": "Improvements made to previous systems, updates on AI algorithms etc.",
+        "sourceType": "inference",
+        "strength": 0.35
+      }
+    ],
+    "assumptions": [
+      "Assumption about the current state and future requirements"
+    ],
+    "uncertainties": [
+      "Unsure of new feature or improvement in existing system"
+    ],
+    "proposedActions": [
+      {
+        "actionType": "internal_reasoning",
+        "description": "Development, testing & implementation",
+        "requiresApproval": false
+      }
+    ]
+  },
+  "Confidence": {
+    "Score": 1.0,
+    "Percent": 100.0,
+    "Band": "high",
+    "Factors": {
+      "schemaCompleteness": 1.0,
+      "evidenceQuality": 0.0,
+      "providerAgreement": 0.8333,
+      "critiqueCompleted": true,
+      "uncertaintyCalibration": 0.9,
+      "providerDiversity": 1.0,
+      "validationRepairs": 0,
+      "repairPenalty": 1.0
+    },
+    "Interpretation": "Evidence-derived runtime confidence; not a probability that Brainstem is AGI."
+  },
+  "Critique": {
+    "independentAudits": [
+      {
+        "providerId": "ollama-local",
+        "perspective": "systems-architect",
+        "answer": "substantive audit of systems architecture and perspective on the next highest value capability.",
+        "currentState": "Current state: Systems architect is conducting an independent system design review. The focus has been shifted to assessing new features or improvements in existing software, as well as identifying gaps that could be addressed for future development."
+      },
+      {
+        "providerId": "ollama-local",
+        "perspective": "'skeptical evaluator' ",
+        "answer": "substantive audit of the perspective on new features and improvements in existing software.",
+        "currentState": "Current state: Skeptical Evaluators are conducting an independent validation review. The focus has been shifted to assessing whether there is a measurable benchmark that passes repeatedly without bypassing governance."
+      }
+    ]
+  },
+  "Providers": [
+    {
+      "providerId": "ollama-local",
+      "providerName": "Ollama Local",
+      "model": "deepseek-coder:1.3b",
+      "locality": "local",
+      "perspective": "systems-architect",
+      "latencyMs": 29085.26,
+      "usage": {
+        "promptTokens": 595,
+        "completionTokens": 292
+      },
+      "rawHash": "8d36afec2a03d576ef3e4b0494774cd71b72bd396425add101f50f0fa3a78e74"
+    },
+    {
+      "providerId": "ollama-local",
+      "providerName": "Ollama Local",
+      "model": "deepseek-coder:1.3b",
+      "locality": "local",
+      "perspective": "skeptical-evaluator",
+      "latencyMs": 46449.76,
+      "usage": {
+        "promptTokens": 601,
+        "completionTokens": 364
+      },
+      "rawHash": "45f6f83df3fa53193989473e6cd1e756f918ca2136d0300091796c76885f3299"
+    }
+  ],
+  "ProviderFailures": [
+    {
+      "ProviderId": "ollama-local",
+      "ProviderName": "Ollama Local",
+      "Model": "deepseek-coder:1.3b",
+      "Perspective": "synthesis",
+      "Stage": "synthesis",
+      "Error": "Invalid structured model output: The provided JSON includes a property whose name is an empty string, this is only supported using the -AsHashTable switch."
+    }
+  ],
+  "RecalledMemory": [
+    {
+      "Score": 19.1491,
+      "MatchedTokens": [
+        "audit",
+        "brainstem",
+        "and",
+        "identify",
+        "the",
+        "next",
+        "highest",
+        "value",
+        "agi",
+        "capability",
+        "gap"
+      ],
+      "Record": {
+        "schema": "kindred.brainstem.memory.v2",
+        "id": "3b224418d91541efa071e3d41f4ff10a",
+        "timestampUtc": "2026-07-25T17:27:51.3214107Z",
+        "namespace": "production",
+        "type": "episodic",
+        "content": "Objective: Audit Brainstem and identify the next highest-value AGI capability gap. | Status: COMPLETED",
+        "tags": [
+          "cognitive-cycle",
+          "5b3aec6a98c142968ebc0162fea680b2"
+        ],
+        "confidence": 0.8,
+        "source": "Legacy:Brainstem.Cognition",
+        "metadata": {
+          "legacyId": "382b16ef3b5c4c969d9a7c8802fc4b64"
+        }
+      }
+    },
+    {
+      "Score": 19.1491,
+      "MatchedTokens": [
+        "audit",
+        "brainstem",
+        "and",
+        "identify",
+        "the",
+        "next",
+        "highest",
+        "value",
+        "agi",
+        "capability",
+        "gap"
+      ],
+      "Record": {
+        "schema": "kindred.brainstem.memory.v2",
+        "id": "9d790adf535c46fc8e076fcddb332ab1",
+        "timestampUtc": "2026-07-25T17:27:51.3249036Z",
+        "namespace": "production",
+        "type": "episodic",
+        "content": "Objective: Audit Brainstem and identify the next highest-value AGI capability gap. | Status: COMPLETED",
+        "tags": [
+          "cognitive-cycle",
+          "5401e9a4150a459daa9b0e1986bccebc"
+        ],
+        "confidence": 0.8,
+        "source": "Legacy:Brainstem.Cognition",
+        "metadata": {
+          "legacyId": "4e90d19a34e2437198be579ee032b13c"
+        }
+      }
+    },
+    {
+      "Score": 2.4219,
+      "MatchedTokens": [
+        "the"
+      ],
+      "Record": {
+        "schema": "kindred.brainstem.memory.v2",
+        "id": "242b74303d5a44d2b4259b4a301c50e1",
+        "timestampUtc": "2026-07-25T17:27:51.2919003Z",
+        "namespace": "production",
+        "type": "episodic",
+        "content": "Objective: Validate the governed cognitive cycle. | Status: COMPLETED",
+        "tags": [
+          "cognitive-cycle",
+          "280902708d59457c965e410f6a90906b"
+        ],
+        "confidence": 0.8,
+        "source": "Legacy:Brainstem.Cognition",
+        "metadata": {
+          "legacyId": "2360d9772c1045dcb949186fe8bd052e"
+        }
+      }
+    }
+  ],
+  "ValidationRepairCount": 0
+}

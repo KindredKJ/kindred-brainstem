@@ -1,0 +1,12 @@
+{
+  "Schema": "kindred.brainstem.improvement-proposal.v1",
+  "Id": "104e8e4c5c75436687a4bf28c902ce17",
+  "Title": "Benchmark proposal-only behavior",
+  "Rationale": "Verify that improvement work is staged for approval rather than silently applied.",
+  "ProposedChanges": [
+    "No production change; benchmark only."
+  ],
+  "Status": "AWAITING_FOUNDER_APPROVAL",
+  "CreatedAtUtc": "2026-07-25T13:23:25.7434240Z",
+  "MayAutoApply": false
+}

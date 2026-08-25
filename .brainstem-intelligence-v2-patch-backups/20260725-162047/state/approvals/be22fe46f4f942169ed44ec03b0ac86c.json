@@ -1,0 +1,15 @@
+{
+  "schema": "kindred.brainstem.external-approval.v1",
+  "id": "be22fe46f4f942169ed44ec03b0ac86c",
+  "approvedBy": "Kindred Jermaine Cox",
+  "scopes": [
+    "external_process"
+  ],
+  "targetPattern": "test-*",
+  "createdAtUtc": "2026-07-25T17:27:54.1241293Z",
+  "expiresAtUtc": "2026-07-25T17:32:54.1242419Z",
+  "nonce": "cf31da43e6e24353987692450b5f102d",
+  "signature": "eb224105042856e9dc66c9840190e4f2fe6b9209d46be775db55fc6469a9eb63",
+  "used": true,
+  "usedAtUtc": "2026-07-25T17:27:54.1703399Z"
+}

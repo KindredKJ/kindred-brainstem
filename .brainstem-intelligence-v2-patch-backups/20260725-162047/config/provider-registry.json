@@ -1,0 +1,89 @@
+{
+  "schema": "kindred.brainstem.provider-registry.v2",
+  "providers": [
+    {
+      "id": "ollama-local",
+      "displayName": "Ollama Local",
+      "kind": "ollama",
+      "locality": "local",
+      "enabled": true,
+      "priority": 10,
+      "baseUrl": "http://127.0.0.1:11434",
+      "apiKeyEnv": "",
+      "modelEnv": "BRAINSTEM_OLLAMA_MODEL",
+      "defaultModel": "",
+      "timeoutSec": 180,
+      "maxRetries": 2
+    },
+    {
+      "id": "lmstudio-local",
+      "displayName": "LM Studio Local",
+      "kind": "openai_compatible",
+      "locality": "local",
+      "enabled": true,
+      "priority": 20,
+      "baseUrl": "http://127.0.0.1:1234/v1",
+      "apiKeyEnv": "",
+      "modelEnv": "BRAINSTEM_LMSTUDIO_MODEL",
+      "defaultModel": "",
+      "timeoutSec": 180,
+      "maxRetries": 2
+    },
+    {
+      "id": "openai-cloud",
+      "displayName": "OpenAI Responses",
+      "kind": "openai_responses",
+      "locality": "cloud",
+      "enabled": true,
+      "priority": 30,
+      "baseUrl": "https://api.openai.com/v1",
+      "apiKeyEnv": "OPENAI_API_KEY",
+      "modelEnv": "OPENAI_MODEL",
+      "defaultModel": "",
+      "timeoutSec": 180,
+      "maxRetries": 2
+    },
+    {
+      "id": "anthropic-cloud",
+      "displayName": "Anthropic Messages",
+      "kind": "anthropic_messages",
+      "locality": "cloud",
+      "enabled": true,
+      "priority": 40,
+      "baseUrl": "https://api.anthropic.com/v1",
+      "apiKeyEnv": "ANTHROPIC_API_KEY",
+      "modelEnv": "ANTHROPIC_MODEL",
+      "defaultModel": "",
+      "timeoutSec": 180,
+      "maxRetries": 2
+    },
+    {
+      "id": "gemini-cloud",
+      "displayName": "Google Gemini",
+      "kind": "gemini_generatecontent",
+      "locality": "cloud",
+      "enabled": true,
+      "priority": 50,
+      "baseUrl": "https://generativelanguage.googleapis.com/v1beta",
+      "apiKeyEnv": "GEMINI_API_KEY",
+      "modelEnv": "GEMINI_MODEL",
+      "defaultModel": "gemini-3.6-flash",
+      "timeoutSec": 180,
+      "maxRetries": 2
+    },
+    {
+      "id": "custom-openai-compatible",
+      "displayName": "Custom OpenAI-Compatible",
+      "kind": "openai_compatible",
+      "locality": "cloud",
+      "enabled": true,
+      "priority": 60,
+      "baseUrl": "https://example.invalid/v1",
+      "apiKeyEnv": "BRAINSTEM_CUSTOM_API_KEY",
+      "modelEnv": "BRAINSTEM_CUSTOM_MODEL",
+      "defaultModel": "",
+      "timeoutSec": 180,
+      "maxRetries": 2
+    }
+  ]
+}

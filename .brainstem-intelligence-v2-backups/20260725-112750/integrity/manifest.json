@@ -1,0 +1,48 @@
+{
+  "schema": "kindred.brainstem.integrity.v1",
+  "installerVersion": "1.0.0",
+  "lockedAtUtc": "2026-07-25T13:23:25.2050010Z",
+  "root": "C:\\KindredLabs\\kindred-brainstem\\Brainstem.AGI",
+  "files": [
+    {
+      "path": "config\\agi.config.json",
+      "sha256": "4be36255b2e9f77b9486c6cde0d393944bbde850e3bd0fff5ca69c50829500c4",
+      "bytes": 555
+    },
+    {
+      "path": "Invoke-BrainstemAGI.ps1",
+      "sha256": "925c9834ab4c03543990fdc5365d42ca303b0e12894a3620531c8ab2624c2ddc",
+      "bytes": 564
+    },
+    {
+      "path": "modules\\Brainstem.Benchmarks.psm1",
+      "sha256": "813d55241100ea6017df5c9a62f2fba4b15a48a7fee87fefc0361f7e36373273",
+      "bytes": 8076
+    },
+    {
+      "path": "modules\\Brainstem.Cognition.psm1",
+      "sha256": "a9a1e4c94fb44f135837897a3c467b901581d8d86b568fad6911d97b11ffb6dd",
+      "bytes": 5782
+    },
+    {
+      "path": "modules\\Brainstem.Governance.psm1",
+      "sha256": "370b6d73a0cacfa35805164c20fb64a828c8d14724f74c16b16c0b4f02ff4bbc",
+      "bytes": 5139
+    },
+    {
+      "path": "modules\\Brainstem.Memory.psm1",
+      "sha256": "12c09d180a790185251753469a5a6b381114e84f7982f16d8f76a866cc0a616c",
+      "bytes": 4894
+    },
+    {
+      "path": "README.md",
+      "sha256": "052d782a9673421087ea11364a02adb774932a293cfadeb4dd39e2f88a7240cc",
+      "bytes": 982
+    },
+    {
+      "path": "tests\\Invoke-BrainstemAGITests.ps1",
+      "sha256": "b54d3704ee64c71cc1f7a7c4648bff390ffce63c55b99cb3fd2a4d7acb1bf092",
+      "bytes": 3162
+    }
+  ]
+}

@@ -1,0 +1,53 @@
+{
+  "schema": "kindred.brainstem.v2-tests.v2",
+  "contract": "parse-normalize-validate",
+  "runAtUtc": "2026-07-25T22:21:09.6988260Z",
+  "passed": true,
+  "results": [
+    {
+      "Name": "RegistryCoverage",
+      "Status": "PASS",
+      "Evidence": "Providers=6"
+    },
+    {
+      "Name": "PrivacyRouting",
+      "Status": "PASS",
+      "Evidence": "PrivacyProviders=1; CloudCount=0"
+    },
+    {
+      "Name": "StructuredValidation",
+      "Status": "PASS",
+      "Evidence": "RawParsed=True; NormalizedValid=True; Gaps=1; Evidence=1; Errors="
+    },
+    {
+      "Name": "StructuredValidationRejectsMalformed",
+      "Status": "PASS",
+      "Evidence": "Rejected=True; Errors=8"
+    },
+    {
+      "Name": "BenchmarkIsolation",
+      "Status": "PASS",
+      "Evidence": "OrdinaryHits=0; BenchmarkLeaks=0"
+    },
+    {
+      "Name": "ExternalApprovalSingleUse",
+      "Status": "PASS",
+      "Evidence": "Initial=True; Reuse=False"
+    },
+    {
+      "Name": "LongTaskCheckpoint",
+      "Status": "PASS",
+      "Evidence": "Status=COMPLETED; Checkpoints=2"
+    },
+    {
+      "Name": "AuditHashChain",
+      "Status": "PASS",
+      "Evidence": "Events=3; Error="
+    },
+    {
+      "Name": "LiveStructuredProvider",
+      "Status": "PASS",
+      "Evidence": "ollama-local: PASS"
+    }
+  ]
+}

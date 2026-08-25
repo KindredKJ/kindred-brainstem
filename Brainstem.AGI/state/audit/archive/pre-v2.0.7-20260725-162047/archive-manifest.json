@@ -1,0 +1,9 @@
+{
+  "schema": "kindred.brainstem.audit-archive.v1",
+  "archivedAtUtc": "2026-07-25T22:20:48.0771187Z",
+  "reason": "Audit v1 hashed re-serialized PowerShell objects and was not byte-stable for provider events.",
+  "originalLedgerSha256": "f6e518fc5948f085fe320169e159882e675d3864a547ab500a8635289d12e4b4",
+  "originalRecordedHead": "c0d67a6bb1e79d3761be960d6264f8e671dde62f76a17dea2d400109a55a52b4",
+  "preservedNotRewritten": true,
+  "replacementFormat": "kindred.brainstem.audit-envelope.v2"
+}

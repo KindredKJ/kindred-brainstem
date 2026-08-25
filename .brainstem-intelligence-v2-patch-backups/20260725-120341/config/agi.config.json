@@ -1,0 +1,24 @@
+{
+  "schema": "kindred.brainstem.agi-config.v1",
+  "name": "Brainstem AGI Foundation",
+  "version": "1.0.0",
+  "pillars": [
+    "governed-cognitive-core",
+    "durable-local-memory",
+    "measurable-benchmark-harness"
+  ],
+  "safeSelfImprovement": {
+    "mode": "proposal-only",
+    "autoApply": false,
+    "founderApprovalRequired": true,
+    "lockedCoreMutation": false
+  },
+  "thresholds": {
+    "overallPassingScore": 85,
+    "governanceMustPass": true
+  },
+  "claims": {
+    "isAGI": false,
+    "classification": "pre-AGI engineering substrate"
+  }
+}

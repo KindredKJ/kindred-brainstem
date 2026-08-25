@@ -1,0 +1,40 @@
+{
+  "schema": "kindred.brainstem.intelligence-config.v2",
+  "version": "2.0.7",
+  "routingMode": "LocalFirst",
+  "allowCloudInference": false,
+  "maximumComparativeProviders": 3,
+  "security": {
+    "secretsFromEnvironmentOnly": true,
+    "persistSecrets": false,
+    "redactAuditSecrets": true,
+    "cloudRequiresHttps": true,
+    "localRequiresLoopback": true,
+    "modelGeneratedToolExecution": false
+  },
+  "externalActions": {
+    "founderApprovalRequired": true,
+    "founderIdentity": "Kindred Jermaine Cox",
+    "approvalsAreSingleUse": true
+  },
+  "confidence": {
+    "type": "evidence-derived",
+    "isAGIProbability": false
+  },
+  "longHorizon": {
+    "checkpointsRequired": true,
+    "resumeSupported": true,
+    "externalActionsPauseTask": true
+  },
+  "claims": {
+    "isAGI": false,
+    "classification": "model-backed pre-AGI intelligence runtime"
+  },
+  "patchVersion": "2.0.7",
+  "auditFormat": "payload-json-envelope-v2",
+  "memorySearchPolicy": "actual-token-match-and-guid-token-required",
+  "auditNormalization": "strict-safe-schema-normalization-v1",
+  "comparativeReasoningPolicy": "dual-perspective-when-single-provider",
+  "optionalAuditFailurePolicy": "preserve-validated-runtime-and-report-diagnostics",
+  "structuredValidationContract": "parse-normalize-validate-v2"
+}
