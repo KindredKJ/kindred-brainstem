@@ -1,9 +1,18 @@
-# BRAINSTEM
+# KINDRED BRAINSTEM CLI
 
 **BRAINSTEM: From Signal to Infrastructure.** Founded by Kindred Jermaine Cox and originated from Kindred Labs.
 
+The canonical executable is `kindred` (`brainstem`, `bstem`, and `kbs` remain
+convenience entry points). Open the governed runtime with `kindred`, attach a
+model with `kindred attach <model>`, use `kindred codex --here` for repository
+aware Codex sessions, or verify all local cognitive planes with `kindred awaken`.
+
+Attachments are local, isolated, persistent session records. Observations enter
+candidate learning state and production modification remains blocked; the CLI
+does not silently retrain an attached model.
+
 ## What BRAINSTEM is
-BRAINSTEM is a local-first, evidence-ledgered operating layer for converting signals into verified infrastructure results. It does not count plans, generated text, or hype as success.
+BRAINSTEM is a persistent cognitive model whose native DCML mechanism converts signals into governed, evidence-ledgered cognitive and infrastructure results. The local runtime serves the model; it does not define BRAINSTEM's intelligence. It does not count plans, generated text, or hype as success.
 
 ## Existing repo status
 The repo preserves the Kindred Revenue Stack Engine (KRSE) and extends the doctrine into a result-only reality execution, audit, approval, memory, backprop, PlugCore, and corporate transition layer.
@@ -18,7 +27,7 @@ External outcomes are recorded in `data/external_outcomes.jsonl`. Mock outcomes 
 KRSE remains the native revenue planning engine. It defines offer, price, payment path, payout, margin, reserve, and reinvestment logic without processing real payments.
 
 ## Founder Approval Plane
-High-impact actions require explicit founder approval from Kindred Jermaine Cox. Silence never approves. The local approval server binds to `127.0.0.1` by default.
+High-impact actions require a live Ed25519 founder decision bound to the exact action, immutable payload digest, configured environment and tenant, derived signing-key identity, issuance/expiry, and one-time nonce. A public founder name or caller-supplied identity is never authorization. Silence, rejection, expiry, revocation, supersession, malformed records, and replay all fail closed. The local approval server binds to `127.0.0.1` by default.
 
 ## PlugCore
 PlugCore scans the current host and writes local host/capability/resource reports.
@@ -76,3 +85,17 @@ brainstem transition report
 
 ## What is internal-only and never externally packaged
 Founder approvals, private audit imports, local ledgers, raw evidence, private financial CSVs, and internal governance endpoints are internal-only. BRAINSTEM v1 performs no real payments, tax filings, legal filings, public launches, cloud deployment, or asset transfers.
+
+## Runtime vertical slice (0.1.0-alpha)
+
+The CLI now acts as a client to a loopback BRAINSTEM runtime service. Start it
+with `kindred runtime start`, inspect actual probes with `kindred runtime status`,
+and then use `kindred shell`. Canonical session, message, evidence, learning, and
+audit state is stored in SQLite under `~/.kindred`; repository-local `.kindred`
+state contains the active session pointer.
+
+No inference model is bundled. H^ and Codex remain `NOT_CONFIGURED` until their
+real runtimes are present and pass health probes. An explicitly configured
+OpenAI-compatible endpoint can provide inference; model failures never silently
+fall back. See [the current-state assessment](docs/CURRENT_STATE_ASSESSMENT.md)
+and [architecture](docs/ARCHITECTURE.md) for verified scope and limitations.

@@ -1,0 +1,23 @@
+schema_version: 1
+authorization_source: founder_directive
+founder: Kindred Jermaine Cox
+authority: FOUNDER_ROOT
+directive_scope: strata_data_port_network_end_to_end_completion
+authorization_status: APPROVED
+recorded_actions:
+  - FEATURE_BRANCH_CREATION
+  - ARCHITECTURE_CHANGE
+  - SCHEMA_CHANGE
+  - DATABASE_MIGRATION
+  - INTERNAL_API_CHANGE
+  - SECURITY_HARDENING
+  - AUTHORIZATION_POLICY_IMPLEMENTATION
+  - TEST_INFRASTRUCTURE_CHANGE
+  - DOCUMENTATION_CHANGE
+  - AUDIT_EVIDENCE_GENERATION
+separately_gated_effects:
+  - public_production_deployment
+  - real_financial_transfer
+  - external_communications_delivery
+  - physical_energy_control
+  - main_branch_merge

@@ -1,0 +1,11 @@
+{
+  "schema_version": 1,
+  "generated_status": "BLOCKED",
+  "reason": "No live remote SHA could be authenticated or fetched",
+  "requested_known_references": {
+    "KindredKJ/KINDRED-WATT": "f81d2ec00b39f876a94e6bcace127fdb2c276b92",
+    "KindredKJ/kindred-brainstem": "7ec86653a73c635b5bff69c4819ff050fafb6976",
+    "KindredKJ/brainstem-in-touch": "328813aebfea8eb6d4d71ef49ed568b36ad1bcb0"
+  },
+  "resolved_repositories": []
+}
