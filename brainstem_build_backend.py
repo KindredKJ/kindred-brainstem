@@ -1,11 +1,11 @@
 from pathlib import Path
 import zipfile, hashlib, base64
-NAME='kindred_brainstem'; VERSION='0.1.0'; DIST=f'{NAME}-{VERSION}.dist-info'
+NAME='kindred_brainstem'; VERSION='0.1.0a0'; DIST=f'{NAME}-{VERSION}.dist-info'
 def _metadata(base):
     d=Path(base)/DIST; d.mkdir(parents=True, exist_ok=True)
-    (d/'METADATA').write_text('Metadata-Version: 2.1\nName: kindred-brainstem\nVersion: 0.1.0\nRequires-Python: >=3.12\nRequires-Dist: typer>=0.12.0\nRequires-Dist: pyyaml>=6.0.1\nRequires-Dist: pydantic>=2.7.0\n', encoding='utf-8')
+    (d/'METADATA').write_text('Metadata-Version: 2.1\nName: kindred-brainstem\nVersion: 0.1.0a0\nRequires-Python: >=3.12\nRequires-Dist: typer>=0.12.0\nRequires-Dist: pyyaml>=6.0.1\nRequires-Dist: pydantic>=2.7.0\nRequires-Dist: fastapi>=0.111.0\nRequires-Dist: uvicorn>=0.30.0\nRequires-Dist: rich>=13.7.0\n', encoding='utf-8')
     (d/'WHEEL').write_text('Wheel-Version: 1.0\nGenerator: brainstem-build-backend\nRoot-Is-Purelib: true\nTag: py3-none-any\n', encoding='utf-8')
-    (d/'entry_points.txt').write_text('[console_scripts]\nbrainstem = brainstem.cli.app:app\n', encoding='utf-8')
+    (d/'entry_points.txt').write_text('[console_scripts]\nkindred = brainstem.cli.app:app\nbrainstem = brainstem.cli.app:app\nbstem = brainstem.cli.app:app\nkbs = brainstem.cli.app:app\n', encoding='utf-8')
     (d/'RECORD').write_text('', encoding='utf-8')
     return DIST
 def prepare_metadata_for_build_editable(metadata_directory, config_settings=None): return _metadata(metadata_directory)
