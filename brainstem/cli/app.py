@@ -4,6 +4,7 @@ import json
 import platform
 import shutil
 import subprocess
+import sys
 import uuid
 from datetime import datetime, timezone
 from pathlib import Path
@@ -14,8 +15,24 @@ import yaml
 from rich.console import Console
 from rich.table import Table
 
-app = typer.Typer(help="BRAINSTEM: From Signal to Infrastructure.")
+from brainstem.cli.cognitive import _client, register, render_shell_status, run_shell
+
+app = typer.Typer(
+    help="Kindred BRAINSTEM cognitive model and serving-runtime interface.",
+    invoke_without_command=True,
+)
 console = Console()
+
+
+@app.callback()
+def main(ctx: typer.Context) -> None:
+    """KINDRED BRAINSTEM CLI."""
+    if ctx.invoked_subcommand is None:
+        if sys.stdin.isatty():
+            run_shell(_client())
+        else:
+            render_shell_status()
+
 
 plugcore_app = typer.Typer(help="PlugCore host adaptation commands.")
 audit_app = typer.Typer(help="Global founder asset/company/revenue audit commands.")
@@ -26,6 +43,8 @@ app.add_typer(plugcore_app, name="plugcore")
 app.add_typer(audit_app, name="audit")
 app.add_typer(transition_app, name="transition")
 app.add_typer(outcome_app, name="outcome")
+
+register(app)
 
 
 def utc_now() -> str:
@@ -84,10 +103,7 @@ def safe_git_status() -> str:
 @app.command()
 def health() -> None:
     """Check the local BRAINSTEM installation."""
-    console.print("[bold green]BRAINSTEM health: OK[/bold green]")
-    console.print("CLI: integrated")
-    console.print("Doctrine: result-only")
-    console.print("External side effects: disabled by default")
+    render_shell_status()
 
 
 @app.command()

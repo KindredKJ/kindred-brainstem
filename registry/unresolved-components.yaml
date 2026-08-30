@@ -1,0 +1,25 @@
+schema_version: 1
+truth_classification: locally_executed_blocker_evidence
+components:
+  - name: Dot AI
+    classification: founder_defined_component_repository_authority_unresolved
+    blocker: authenticated ecosystem inventory unavailable
+  - name: IAMI
+    classification: repository_authority_unverified
+    blocker: authenticated ecosystem inventory unavailable
+  - name: IAMI-X
+    classification: repository_authority_unverified
+    blocker: authenticated ecosystem inventory unavailable
+  - name: RetroBank
+    classification: canonical_authority_directed_but_implementation_unverified
+    blocker: authoritative repository and legal/provider evidence unavailable
+  - name: G3T Connected
+    classification: communications_transport_authority_directed_but_implementation_unverified
+    blocker: authoritative repository unavailable
+  - name: Strata Data Port Zero
+    classification: architecture_authority_defined_implementation_unverified
+    blocker: superstructure repository unavailable
+  - name: KINDRED-WATT
+    classification: known_reference_unverified_against_live_remote
+    supplied_reference: f81d2ec00b39f876a94e6bcace127fdb2c276b92
+    blocker: GitHub CONNECT tunnel rejected

@@ -19,7 +19,7 @@ from brainstem.utils.paths import ROOT, GENERATED
 from brainstem.utils.jsonl import append_jsonl
 
 def test_health_and_krse_import():
-    r=CliRunner().invoke(app,['health']); assert r.exit_code==0 and 'OK' in r.output
+    r=CliRunner().invoke(app,['health']); assert r.exit_code==0 and ('OFFLINE' in r.output or 'DEGRADED' in r.output or 'HEALTHY' in r.output)
     assert KindredRevenueStackEngine().generate_plan({'name':'x'}).product_name=='x'
 
 def test_reality_loop_and_external_level_gate():
