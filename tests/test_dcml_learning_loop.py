@@ -37,7 +37,8 @@ def add_verified(dcml, index, strategy="verified_procedure", reward=1.0, private
     )
     evaluation = dcml.evaluate(exp)
     credit = dcml.assign_credit(exp, evaluation)
-    approval = dcml.authority.sign(f"learn:{exp}", "experience-learning")
+    content_hash = dcml._get("experiences_v2", exp)["content_hash"]
+    approval = dcml.authority.sign(f"learn:{exp}", "experience-learning", content_hash)
     dcml.approve_for_learning(exp, approval)
     return exp, evaluation, credit, approval
 
@@ -133,7 +134,7 @@ def test_dataset_split_reproducible_and_approval_tamper_fails(tmp_path):
     two = dcml._get("datasets", dcml.build_dataset(seed=99))["payload"]
     assert one["split"] == two["split"]
     exp = one["source_experience_ids"][0]
-    approval = dcml.authority.sign(f"learn:{exp}", "test")
+    approval = dcml.authority.sign(f"learn:{exp}", "test", dcml._get("experiences_v2", exp)["content_hash"])
     assert dcml.authority.verify(approval, f"learn:{exp}")
     record = store.query(
         "SELECT payload FROM signed_approvals WHERE id=?", (approval,)

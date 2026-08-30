@@ -24,7 +24,8 @@ class FounderAuthority:
         self.public_key = self.key_dir / "founder-ed25519-public.pem"
 
     def initialize(self) -> str:
-        self.key_dir.mkdir(parents=True, exist_ok=True)
+        self.key_dir.mkdir(parents=True, exist_ok=True, mode=0o700)
+        os.chmod(self.key_dir, 0o700)
         if not self.private_key.exists():
             subprocess.run(
                 [
@@ -82,6 +83,8 @@ class FounderAuthority:
         decision: str = "APPROVED",
     ) -> str:
         payload = self._payload(action, scope, checkpoint_hash, expires_at)
+        # The decision is authorization material, not unsigned display metadata.
+        payload["decision"] = decision
         message = json.dumps(payload, sort_keys=True, separators=(",", ":")).encode()
         with tempfile.TemporaryDirectory() as directory:
             msg = Path(directory) / "message"
@@ -134,7 +137,10 @@ class FounderAuthority:
         record = json.loads(rows[0]["payload"])
         payload = record["payload"]
         if (
-            payload.get("revoked")
+            rows[0]["status"] != "APPROVED"
+            or record.get("decision") != "APPROVED"
+            or payload.get("decision") != "APPROVED"
+            or payload.get("revoked")
             or (expected_action and payload.get("action") != expected_action)
             or (
                 expected_checkpoint_hash is not None

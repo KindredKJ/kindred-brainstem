@@ -10,6 +10,7 @@ from datetime import datetime, timezone
 import urllib.error
 import urllib.request
 from typing import Any
+from pydantic import ValidationError
 
 from brainstem.model.authority import FounderAuthority
 from brainstem.runtime.store import StateStore, now
@@ -140,6 +141,8 @@ class PortZeroGateway:
             raise PortZeroBlocked(
                 "cryptographic founder or delegated authorization failed"
             )
+        self._transition(request, BoundaryState.CREATED, BoundaryState.IDENTITY_VERIFIED,
+                         "cryptographic founder authorization verified")
         state = self.status()
         if state["status"] != "AVAILABLE":
             self._transition(
@@ -158,10 +161,17 @@ class PortZeroGateway:
                 "Port Zero endpoint did not use HTTPS",
             )
             raise PortZeroBlocked("Port Zero production endpoint must use HTTPS")
-        context = ssl.create_default_context(cafile=os.environ["KINDRED_PORT_ZERO_CA"])
-        context.load_cert_chain(
-            os.environ["KINDRED_PORT_ZERO_CERT"], os.environ["KINDRED_PORT_ZERO_KEY"]
-        )
+        try:
+            context = ssl.create_default_context(cafile=os.environ["KINDRED_PORT_ZERO_CA"])
+            context.load_cert_chain(
+                os.environ["KINDRED_PORT_ZERO_CERT"], os.environ["KINDRED_PORT_ZERO_KEY"]
+            )
+        except (OSError, ssl.SSLError) as exc:
+            self._transition(request, BoundaryState.IDENTITY_VERIFIED, BoundaryState.FAILED,
+                             f"mTLS initialization failed: {type(exc).__name__}")
+            raise PortZeroBlocked("Port Zero mTLS initialization failed") from exc
+        self._transition(request, BoundaryState.IDENTITY_VERIFIED, BoundaryState.ROUTE_AUTHORIZED,
+                         "mTLS route authorized")
         body = request.model_dump_json().encode()
         self._transition(
             request,
@@ -193,7 +203,12 @@ class PortZeroGateway:
             raise PortZeroBlocked(
                 "Port Zero transport failed without fallback"
             ) from exc
-        parsed = PortResponse.model_validate(result)
+        try:
+            parsed = PortResponse.model_validate(result)
+        except ValidationError as exc:
+            self._transition(request, BoundaryState.SUBMITTED_TO_PORT_ZERO, BoundaryState.FAILED,
+                             "Port Zero response schema validation failed")
+            raise PortZeroBlocked("Port Zero returned an invalid response") from exc
         if parsed.request_id != request.request_id:
             self._transition(
                 request,
@@ -207,5 +222,9 @@ class PortZeroGateway:
             BoundaryState.SUBMITTED_TO_PORT_ZERO,
             BoundaryState.PORT_REPORTED,
             "signed response requires reconciliation",
+        )
+        self.store.execute(
+            "UPDATE strata_boundary_requests SET response=?,updated_at=? WHERE request_id=?",
+            (parsed.model_dump_json(), now(), request.request_id),
         )
         return parsed

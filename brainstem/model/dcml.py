@@ -18,6 +18,37 @@ from brainstem.runtime.store import StateStore, now
 EVALUATOR_VERSION = "dcml-evaluator-1"
 METRIC_VERSION = "dcml-metrics-1"
 SECRET_PATTERN = re.compile(r"(?i)(api[_-]?key|password|secret|token)\s*[:=]\s*\S+")
+SECRET_KEYS = re.compile(r"(?i)^(api[_-]?key|password|secret|access[_-]?token|refresh[_-]?token|auth(orization)?)$")
+
+
+def _contains_secret(value: Any) -> bool:
+    if isinstance(value, dict):
+        return any(SECRET_KEYS.match(str(key)) or _contains_secret(item) for key, item in value.items())
+    if isinstance(value, (list, tuple)):
+        return any(_contains_secret(item) for item in value)
+    return isinstance(value, str) and bool(SECRET_PATTERN.search(value))
+
+
+def _evidence_valid(kind: str, evidence: dict[str, Any]) -> bool:
+    if not isinstance(evidence, dict) or not evidence:
+        return False
+    if kind == "passing_test":
+        return evidence.get("passed") is not False and bool(evidence.get("test") or evidence.get("command"))
+    if kind == "repository_change":
+        return bool(evidence.get("commit") or evidence.get("diff_hash"))
+    if kind in {"external_deployment", "external_user_action", "financial_event"}:
+        return bool(evidence.get("receipt") or evidence.get("signature") or evidence.get("event_id"))
+    if kind == "founder_confirmation":
+        return bool(evidence.get("approval_id"))
+    return False
+
+
+def _training_key(data: dict[str, Any]) -> str:
+    return _hash({key: data.get(key) for key in (
+        "goal", "input_state", "selected_strategy", "selected_instrument",
+        "success_criteria", "actual_observed_outcome", "reward",
+        "failure_classification", "privacy_classification",
+    )})
 
 
 def _id(prefix: str) -> str:
@@ -175,15 +206,17 @@ class DCMLLearning:
             "external_proof": evidence_type
             in {"external_deployment", "external_user_action", "financial_event"},
         }
-        status = "VERIFIED" if can_verify else "UNVERIFIED"
+        status = "VERIFIED" if can_verify and _evidence_valid(evidence_type, evidence) else "UNVERIFIED"
         self._put("verifications", verification_id, status, payload)
         experience = self._get("experiences_v2", experience_id)
         data = experience["payload"]
         data["evidence_references"].append(verification_id)
-        data["approval_state"] = status
+        prior_verified = experience["status"] in {"VERIFIED", "APPROVED_FOR_LEARNING"}
+        new_status = experience["status"] if prior_verified else status
+        data["approval_state"] = new_status
         self.store.execute(
             "UPDATE experiences_v2 SET status=?,payload=?,content_hash=?,updated_at=? WHERE id=?",
-            (status, _canonical(data), _hash(data), now(), experience_id),
+            (new_status, _canonical(data), _hash(data), now(), experience_id),
         )
         return verification_id
 
@@ -197,6 +230,8 @@ class DCMLLearning:
         failure: str | None = None,
     ) -> None:
         record = self._get("experiences_v2", experience_id)
+        if record["status"] in {"VERIFIED", "APPROVED_FOR_LEARNING"}:
+            raise PermissionError("Verified experience outcomes are immutable")
         data = record["payload"]
         data.update(
             actual_observed_outcome=outcome,
@@ -303,11 +338,12 @@ class DCMLLearning:
 
     def approve_for_learning(self, experience_id: str, approval_id: str) -> None:
         exp = self._get("experiences_v2", experience_id)
-        if not self.authority.verify(approval_id, f"learn:{experience_id}"):
+        if not self.authority.verify(approval_id, f"learn:{experience_id}", exp["content_hash"]):
             raise PermissionError("Signed founder learning approval is invalid")
         if exp["status"] != "VERIFIED":
             raise PermissionError("Experience outcome is not verified")
         data = exp["payload"]
+        data["approved_content_hash"] = exp["content_hash"]
         data["approval_state"] = "APPROVED_FOR_LEARNING"
         data["learning_approval_id"] = approval_id
         self.store.execute(
@@ -326,15 +362,19 @@ class DCMLLearning:
             reason = None
             if data["privacy_classification"] not in {"PUBLIC", "INTERNAL_APPROVED"}:
                 reason = "privacy"
-            elif SECRET_PATTERN.search(serialized):
+            elif _contains_secret(data):
                 reason = "secret_detected"
-            elif row["content_hash"] in seen:
+            elif not self.authority.verify(
+                data.get("learning_approval_id", ""), f"learn:{row['id']}", data.get("approved_content_hash")
+            ):
+                reason = "approval_invalid"
+            elif _training_key(data) in seen:
                 reason = "duplicate"
             if reason:
                 exclusions.append({"id": row["id"], "reason": reason})
             else:
                 unique.append(row["id"])
-                seen.add(row["content_hash"])
+                seen.add(_training_key(data))
         if not unique:
             raise ValueError("No approved uncontaminated experiences")
         shuffled = sorted(

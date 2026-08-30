@@ -68,7 +68,7 @@ def test_production_boundary_fails_closed_without_mtls_and_persists_audit(
         gateway.submit(item)
     persisted = store.query("SELECT * FROM strata_boundary_requests")[0]
     assert persisted["state"] == BoundaryState.BLOCKED
-    event = store.query("SELECT * FROM strata_boundary_events")[0]
+    event = store.query("SELECT * FROM strata_boundary_events ORDER BY sequence DESC")[0]
     assert event["new_state"] == BoundaryState.BLOCKED
     assert (
         "vault://" not in event["payload"]

@@ -345,7 +345,6 @@ class BrainstemModel:
         return [
             {"role": "system", "content": json.dumps(system, sort_keys=True)},
             *history,
-            {"role": "user", "content": text},
         ]
 
     def act(
@@ -403,10 +402,12 @@ class BrainstemModel:
     def reflect(
         self, experience_id: str, prediction: Prediction, response: str
     ) -> tuple[str, float]:
-        success = 1.0 if response.strip() else 0.0
+        # Generation is not outcome verification. It remains pending until
+        # explicit criteria/evidence are evaluated by DCML.
+        success = 0.0
         error = abs(success - prediction.probability)
         evaluation_id = _id("KEVAL")
-        failures = [] if success else ["empty_response"]
+        failures = ["outcome_not_verified"]
         self.store.execute(
             "INSERT INTO evaluations VALUES(?,?,?,?,?,?,?,?)",
             (
@@ -422,7 +423,7 @@ class BrainstemModel:
         )
         self.store.execute(
             "UPDATE predictions SET observed_outcome=?, prediction_error=? WHERE id=?",
-            ("useful_response" if success else "empty_response", error, prediction.id),
+            ("pending_verification", error, prediction.id),
         )
         return evaluation_id, error
 

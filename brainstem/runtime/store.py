@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import os
 import sqlite3
 import uuid
 from contextlib import contextmanager
@@ -20,13 +21,20 @@ class StateStore:
 
     def __init__(self, path: Path, audit_path: Path | None = None) -> None:
         self.path = path.expanduser().resolve()
-        self.path.parent.mkdir(parents=True, exist_ok=True)
+        self.path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
+        os.chmod(self.path.parent, 0o700)
         self.audit_path = audit_path or self.path.with_name("events.jsonl")
         self._initialize()
         self._migrate_dcml()
         self._migrate_dcml_learning_loop()
         self._migrate_strata_client_boundary()
         self._migrate_dcml_advanced_learning()
+        self._secure_files()
+
+    def _secure_files(self) -> None:
+        for candidate in (self.path, Path(str(self.path) + "-wal"), Path(str(self.path) + "-shm"), self.audit_path):
+            if candidate.exists():
+                os.chmod(candidate, 0o600)
 
     @contextmanager
     def connect(self) -> Iterator[sqlite3.Connection]:
@@ -272,9 +280,15 @@ class StateStore:
                     record["created_at"],
                 ),
             )
-        self.audit_path.parent.mkdir(parents=True, exist_ok=True)
-        with self.audit_path.open("a", encoding="utf-8") as stream:
-            stream.write(json.dumps(record, sort_keys=True) + "\n")
+        self.audit_path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
+        try:
+            with self.audit_path.open("a", encoding="utf-8") as stream:
+                stream.write(json.dumps(record, sort_keys=True) + "\n")
+            os.chmod(self.audit_path, 0o600)
+        except OSError:
+            # SQLite is canonical. Export failure must not make a committed mutation
+            # look retryable; the durable event can be re-exported safely later.
+            pass
         return event_id
 
     def create_session(
