@@ -154,6 +154,11 @@ class StateStore:
             """)
 
     def execute(self, sql: str, parameters: tuple[Any, ...] = ()) -> None:
+        # A benchmark seal is process-independent: benchmark test content must not
+        # be written into canonical cognition even if a caller bypasses the harness.
+        from brainstem.benchmarks.seal import reject_canonical_write
+
+        reject_canonical_write(sql)
         with self.connect() as db:
             db.execute(sql, parameters)
 
@@ -323,6 +328,9 @@ class StateStore:
     def add_message(
         self, session_id: str, role: str, content: str, model: str | None = None
     ) -> None:
+        from brainstem.benchmarks.seal import reject_canonical_write
+
+        reject_canonical_write("INSERT INTO memory")
         with self.connect() as db:
             db.execute(
                 "INSERT INTO messages(session_id,role,content,model,created_at) VALUES(?,?,?,?,?)",
@@ -350,6 +358,9 @@ class StateStore:
         content: dict[str, Any],
         status: str = "VERIFIED",
     ) -> str:
+        from brainstem.benchmarks.seal import reject_canonical_write
+
+        reject_canonical_write("INSERT INTO experiences")
         evidence_id = f"KEVD-{uuid.uuid4().hex[:12].upper()}"
         with self.connect() as db:
             db.execute(

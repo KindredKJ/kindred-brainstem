@@ -54,3 +54,5 @@ build/
 .next/
 *.egg-info/
 .kindred/
+
+generated/benchmarks/

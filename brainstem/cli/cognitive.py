@@ -7,6 +7,8 @@ import signal
 import subprocess
 import sys
 import time
+import json
+import shutil
 from pathlib import Path
 from typing import Callable
 
@@ -32,6 +34,7 @@ memory_app = typer.Typer(help="Inspect and consolidate governed memory.")
 strata_app = typer.Typer(help="Inspect the protected Strata Data Port client boundary.")
 strata_ports_app = typer.Typer(help="Operate BRAINSTEM-side Port Zero diagnostics.")
 strata_app.add_typer(strata_ports_app, name="ports")
+benchmark_app = typer.Typer(help="Run isolated external frontier evaluations.")
 
 
 def _client() -> RuntimeClient:
@@ -176,6 +179,7 @@ def register(app: typer.Typer) -> None:
     app.add_typer(dcml_app, name="dcml")
     app.add_typer(memory_app, name="memory")
     app.add_typer(strata_app, name="strata")
+    app.add_typer(benchmark_app, name="benchmark")
 
     @app.command("shell")
     def shell() -> None:
@@ -640,3 +644,302 @@ def strata_ports_verify() -> None:
 @strata_ports_app.command("routes")
 def strata_ports_routes() -> None:
     console.print("Routes: BLOCKED (authoritative Port Zero registry unavailable)")
+
+
+def _benchmark_registry():
+    from brainstem.benchmarks.registry import BenchmarkRegistry
+
+    return BenchmarkRegistry()
+
+
+def _benchmark_runner():
+    from brainstem.benchmarks.runner import FrontierRunner
+
+    return FrontierRunner()
+
+
+@benchmark_app.command("list")
+def benchmark_list() -> None:
+    console.print_json(data=_benchmark_registry().list())
+
+
+@benchmark_app.command("inspect")
+def benchmark_inspect(name: str) -> None:
+    registry = _benchmark_registry()
+    spec = registry.get(name)
+    console.print_json(
+        data={**spec.model_dump(mode="json"), "status": registry.status(spec).value}
+    )
+
+
+@benchmark_app.command("setup")
+def benchmark_setup(name: str) -> None:
+    spec = _benchmark_registry().get(name)
+    console.print_json(
+        data={
+            "status": "NOT_CONFIGURED",
+            "benchmark": name,
+            "required_environment": spec.required_environment,
+            "command_environment_variable": spec.command_env,
+            "automatic_download": False,
+            "reason": "Install and license the official evaluator and dataset, then configure its command explicitly.",
+        }
+    )
+
+
+@benchmark_app.command("doctor")
+def benchmark_doctor(name: str) -> None:
+    from brainstem.benchmarks.adapters import adapter_for
+
+    console.print_json(data=adapter_for(_benchmark_registry().get(name)).doctor())
+
+
+@benchmark_app.command("seal")
+def benchmark_seal() -> None:
+    from brainstem.benchmarks.seal import BenchmarkSeal
+
+    console.print_json(data=BenchmarkSeal().seal())
+
+
+@benchmark_app.command("seal-status")
+def benchmark_seal_status() -> None:
+    from brainstem.benchmarks.seal import BenchmarkSeal
+
+    console.print_json(data=BenchmarkSeal().status())
+
+
+@benchmark_app.command("unseal")
+def benchmark_unseal() -> None:
+    from brainstem.benchmarks.seal import BenchmarkSeal
+
+    console.print_json(data=BenchmarkSeal().unseal())
+
+
+@benchmark_app.command("run")
+def benchmark_run(
+    name: str,
+    configuration: str = "ATTACHED_MODEL_DIRECT",
+    provider: str = "",
+    model: str = "",
+    repetitions: int = 1,
+    signatures: Path | None = None,
+    partition: str = "held_out",
+    checkpoint: str | None = None,
+) -> None:
+    from brainstem.benchmarks.contracts import Configuration
+
+    try:
+        config = Configuration(configuration)
+    except ValueError as exc:
+        raise typer.BadParameter("invalid benchmark configuration") from exc
+    result = _benchmark_runner().run(
+        name,
+        config,
+        provider or None,
+        model or None,
+        repetitions,
+        signatures=_signature_file(signatures) if signatures else None,
+        signature_sources=[signatures] if signatures else None,
+        partition=partition,
+        checkpoint=checkpoint,
+    )
+    console.print_json(data=result)
+
+
+@benchmark_app.command("run-suite")
+def benchmark_run_suite(
+    suite: str,
+    execute: bool = typer.Option(
+        False, "--execute", help="Explicitly permit configured evaluator execution."
+    ),
+    signatures_dir: Path | None = None,
+) -> None:
+    from brainstem.benchmarks.registry import SUITES
+
+    if suite not in SUITES:
+        raise typer.BadParameter("unknown suite")
+    registry = _benchmark_registry()
+    eligible = [
+        name
+        for name in SUITES[suite]
+        if registry.status(registry.get(name)).value == "AVAILABLE"
+    ]
+    if not execute:
+        console.print_json(
+            data={
+                "suite": suite,
+                "status": "DRY_RUN",
+                "configured": eligible,
+                "not_launched": True,
+            }
+        )
+        return
+    console.print_json(
+        data={
+            "suite": suite,
+            "results": [
+                _suite_benchmark_run(name, signatures_dir) for name in eligible
+            ],
+        }
+    )
+
+
+@benchmark_app.command("compare")
+def benchmark_compare(run_a: str, run_b: str) -> None:
+    console.print_json(data=_benchmark_runner().compare(run_a, run_b))
+
+
+@benchmark_app.command("ablate")
+def benchmark_ablate(
+    name: str,
+    execute: bool = typer.Option(False, "--execute"),
+    signatures: Path | None = None,
+    post_checkpoint: str | None = None,
+    rollback_checkpoint: str | None = None,
+) -> None:
+    from brainstem.benchmarks.contracts import Configuration
+
+    if not execute:
+        console.print_json(
+            data={
+                "benchmark": name,
+                "status": "DRY_RUN",
+                "configurations": [x.value for x in Configuration],
+                "causal_claim": False,
+            }
+        )
+        return
+    provider = os.getenv("KINDRED_BENCHMARK_PROVIDER")
+    model = os.getenv("KINDRED_BENCHMARK_MODEL")
+    console.print_json(
+        data={
+            "benchmark": name,
+            "results": [
+                _ablation_run(
+                    name,
+                    c,
+                    provider,
+                    model,
+                    signatures,
+                    post_checkpoint,
+                    rollback_checkpoint,
+                )
+                for c in Configuration
+            ],
+        }
+    )
+
+
+def _signature_file(path: Path | None) -> dict:
+    if path is None:
+        return {}
+    return json.loads(path.read_text(encoding="utf-8"))
+
+
+def _suite_benchmark_run(name: str, signatures_dir: Path | None) -> dict:
+    from brainstem.benchmarks.contracts import Configuration
+
+    path = signatures_dir / f"{name}.json" if signatures_dir else None
+    return _benchmark_runner().run(
+        name,
+        Configuration.ATTACHED_MODEL_DIRECT,
+        os.getenv("KINDRED_BENCHMARK_PROVIDER"),
+        os.getenv("KINDRED_BENCHMARK_MODEL"),
+        signatures=_signature_file(path) if path and path.exists() else None,
+        signature_sources=[path] if path and path.exists() else None,
+    )
+
+
+def _ablation_run(
+    name: str,
+    configuration: object,
+    provider: str | None,
+    model: str | None,
+    signatures: Path | None,
+    post_checkpoint: str | None,
+    rollback_checkpoint: str | None,
+) -> dict:
+    from brainstem.benchmarks.contracts import Configuration
+
+    if not isinstance(configuration, Configuration):
+        raise TypeError("invalid benchmark configuration")
+
+    checkpoint = (
+        post_checkpoint
+        if configuration == Configuration.BRAINSTEM_DCML_POST_LEARNING
+        else rollback_checkpoint
+        if configuration == Configuration.BRAINSTEM_DCML_ROLLBACK
+        else None
+    )
+    if (
+        configuration
+        in {
+            Configuration.BRAINSTEM_DCML_POST_LEARNING,
+            Configuration.BRAINSTEM_DCML_ROLLBACK,
+        }
+        and not checkpoint
+    ):
+        return {
+            "benchmark": name,
+            "configuration": configuration.value,
+            "status": "NOT_CONFIGURED",
+            "reason": "the required frozen checkpoint was not supplied",
+        }
+    return _benchmark_runner().run(
+        name,
+        configuration,
+        provider,
+        model,
+        signatures=_signature_file(signatures) if signatures else None,
+        signature_sources=[signatures] if signatures else None,
+        checkpoint=checkpoint,
+    )
+
+
+@benchmark_app.command("contamination-scan")
+def benchmark_contamination_scan(name: str, signatures: Path | None = None) -> None:
+    from brainstem.benchmarks.contamination import ContaminationScanner
+
+    _benchmark_registry().get(name)
+    console.print_json(
+        data=ContaminationScanner().scan(
+            [Path.cwd()],
+            _signature_file(signatures),
+            [signatures] if signatures else [],
+        )
+    )
+
+
+@benchmark_app.command("contamination-report")
+def benchmark_contamination_report(run_id: str) -> None:
+    path = Path("generated/benchmarks") / run_id / "contamination.json"
+    if not path.exists():
+        raise typer.BadParameter("run not found")
+    console.print_json(data=json.loads(path.read_text(encoding="utf-8")))
+
+
+@benchmark_app.command("report")
+def benchmark_report(run_id: str) -> None:
+    console.print_json(data=_benchmark_runner().report(run_id))
+
+
+@benchmark_app.command("export")
+def benchmark_export(run_id: str) -> None:
+    source = Path("generated/benchmarks") / run_id
+    if not source.exists():
+        raise typer.BadParameter("run not found")
+    output = shutil.make_archive(str(source), "zip", source)
+    console.print(output)
+
+
+@benchmark_app.command("leaderboard")
+def benchmark_leaderboard() -> None:
+    rows = []
+    for path in Path("generated/benchmarks").glob("*/results.json"):
+        result = json.loads(path.read_text(encoding="utf-8"))
+        if (
+            result.get("official_score")
+            and result.get("contamination_status") != "CONTAMINATED"
+        ):
+            rows.append(result)
+    console.print_json(data={"status": "INTERNAL_ONLY", "results": rows})
