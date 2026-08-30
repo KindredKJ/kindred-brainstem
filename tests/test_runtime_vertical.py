@@ -1,4 +1,5 @@
 import json
+import pytest
 
 from brainstem.adapters.models.base import Generation, ModelAdapter, ModelHealth
 from brainstem.adapters.models.codex import CodexAdapter
@@ -70,9 +71,11 @@ def test_session_and_context_survive_store_reopen_and_model_switch(tmp_path):
     runtime = service(tmp_path)
     session = runtime.create_session("working")
     runtime.chat(session["id"], "remember this")
-    runtime.switch(session["id"], "failed")
+    with pytest.raises(RuntimeError):
+        runtime.switch(session["id"], "failed")
+    runtime.switch(session["id"], "working")
     reopened = StateStore(tmp_path / "brainstem.db", tmp_path / "events.jsonl")
-    assert reopened.session(session["id"])["model"] == "failed"
+    assert reopened.session(session["id"])["model"] == "working"
     assert reopened.history(session["id"])[0]["content"] == "remember this"
 
 
@@ -139,3 +142,23 @@ def test_strata_health_endpoint_is_truthful_and_model_owned_boundary_is_delegate
     assert status["status"] == "NOT_CONFIGURED"
     assert status["production_simulation_enabled"] is False
     assert "endpoint" in status["missing"]
+
+
+def test_health_contains_optional_adapter_probe_exception(tmp_path):
+    runtime = service(tmp_path)
+    runtime.adapters["broken"] = type("Broken", (), {"health": lambda self: (_ for _ in ()).throw(OSError("down"))})()
+    health = runtime.health()
+    assert health["models"]["broken"]["status"] == "UNAVAILABLE"
+
+
+def test_codex_generation_is_anchored_to_session_repository(tmp_path):
+    repository = tmp_path / "repo"
+    (repository / ".git").mkdir(parents=True)
+    adapter = SimulatedAdapter()
+    adapter.identity = "codex"
+    adapter.cwd = None
+    store = StateStore(tmp_path / "codex.db", tmp_path / "codex.jsonl")
+    runtime = RuntimeService(store, {"codex": adapter})
+    session = runtime.create_session("codex", str(repository))
+    runtime.chat(session["id"], "inspect")
+    assert adapter.cwd == str(repository.resolve())

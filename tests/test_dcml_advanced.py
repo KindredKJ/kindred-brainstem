@@ -1,6 +1,7 @@
 import pytest
 
 from brainstem.model.dcml import DCMLLearning
+from brainstem.model.advanced import _hash
 from brainstem.runtime.store import StateStore
 
 
@@ -194,6 +195,10 @@ def test_long_horizon_mission_assigns_delayed_temporal_credit(tmp_path):
 
 def test_versioned_skill_contains_governed_execution_contract(tmp_path):
     model = dcml(tmp_path)
+    approval = model.authority.sign(
+        "create_skill:verified-repair", "skill",
+        _hash({"name": "verified-repair", "purpose": "repair code with evidence", "steps": ["inspect", "patch", "test"], "provenance": ["experience-1"]}),
+    )
     skill = model.advanced.create_skill(
         "verified-repair",
         "repair code with evidence",
@@ -206,7 +211,7 @@ def test_versioned_skill_contains_governed_execution_contract(tmp_path):
         ["passing test"],
         ["test failure"],
         ["experience-1"],
-        "approval-1",
+        approval,
     )
     payload = model.advanced._get("skill_records", skill)["payload"]
     assert payload["version"] == 1 and payload["approval_state"] == "APPROVED"
@@ -272,3 +277,13 @@ def test_complete_benchmark_requires_all_categories_and_persists_result(tmp_path
     )
     assert result["task_success_rate"] == 1.0
     assert result["regression_count"] == 0
+
+
+def test_mission_completion_retry_is_idempotent(tmp_path):
+    model = dcml(tmp_path)
+    mission = model.advanced.create_mission("ship", ["green"], [], ["test"], [])
+    model.advanced.record_mission_stage(mission, 1, "test", "baseline", 0.5, ["e1"])
+    first = model.advanced.complete_mission(mission, "green", 1.0, ["e2"])
+    second = model.advanced.complete_mission(mission, "green", 1.0, ["e2"])
+    assert second == first
+    assert len(model.advanced._get("missions_v2", mission)["payload"]["outcomes"]) == 1

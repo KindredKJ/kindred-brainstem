@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import os
 import sqlite3
 import uuid
 from contextlib import contextmanager
@@ -20,13 +21,20 @@ class StateStore:
 
     def __init__(self, path: Path, audit_path: Path | None = None) -> None:
         self.path = path.expanduser().resolve()
-        self.path.parent.mkdir(parents=True, exist_ok=True)
+        self.path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
+        os.chmod(self.path.parent, 0o700)
         self.audit_path = audit_path or self.path.with_name("events.jsonl")
         self._initialize()
         self._migrate_dcml()
         self._migrate_dcml_learning_loop()
         self._migrate_strata_client_boundary()
         self._migrate_dcml_advanced_learning()
+        self._secure_files()
+
+    def _secure_files(self) -> None:
+        for candidate in (self.path, Path(str(self.path) + "-wal"), Path(str(self.path) + "-shm"), self.audit_path):
+            if candidate.exists():
+                os.chmod(candidate, 0o600)
 
     @contextmanager
     def connect(self) -> Iterator[sqlite3.Connection]:
@@ -272,9 +280,15 @@ class StateStore:
                     record["created_at"],
                 ),
             )
-        self.audit_path.parent.mkdir(parents=True, exist_ok=True)
-        with self.audit_path.open("a", encoding="utf-8") as stream:
-            stream.write(json.dumps(record, sort_keys=True) + "\n")
+        self.audit_path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
+        try:
+            with self.audit_path.open("a", encoding="utf-8") as stream:
+                stream.write(json.dumps(record, sort_keys=True) + "\n")
+            os.chmod(self.audit_path, 0o600)
+        except OSError:
+            # SQLite is canonical. Export failure must not make a committed mutation
+            # look retryable; the durable event can be re-exported safely later.
+            pass
         return event_id
 
     def create_session(
@@ -405,6 +419,7 @@ class StateStore:
         destination.parent.mkdir(parents=True, exist_ok=True)
         with self.connect() as source, sqlite3.connect(destination) as target:
             source.backup(target)
+        os.chmod(destination, 0o600)
         self.event("state.backed_up", {"destination": str(destination)})
         return destination
 
@@ -418,10 +433,18 @@ class StateStore:
             raise FileNotFoundError(backup)
         destination = destination.expanduser().resolve()
         destination.parent.mkdir(parents=True, exist_ok=True)
-        with sqlite3.connect(backup) as source, sqlite3.connect(destination) as target:
+        with sqlite3.connect(backup) as source:
             if source.execute("PRAGMA integrity_check").fetchone()[0] != "ok":
                 raise ValueError("Backup failed SQLite integrity check")
-            source.backup(target)
+            tables = {row[0] for row in source.execute("SELECT name FROM sqlite_master WHERE type='table'")}
+            if not {"schema_migrations", "cognitive_states", "sessions"}.issubset(tables):
+                raise ValueError("Backup is not a BRAINSTEM state database")
+            versions = {row[0] for row in source.execute("SELECT version FROM schema_migrations")}
+            if not {1, 2, 3, 4}.issubset(versions):
+                raise ValueError("Backup schema is incomplete or unsupported")
+            with sqlite3.connect(destination) as target:
+                source.backup(target)
+        os.chmod(destination, 0o600)
         restored = cls(destination, audit_path)
         restored.event("state.restored", {"source": str(backup)})
         return restored

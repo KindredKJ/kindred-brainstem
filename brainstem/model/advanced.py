@@ -10,6 +10,7 @@ from collections import defaultdict
 from typing import Any, Callable
 
 from brainstem.runtime.store import StateStore, now
+from brainstem.model.authority import FounderAuthority
 
 
 def _id(prefix: str) -> str:
@@ -34,6 +35,7 @@ class AdvancedDCML:
     ) -> None:
         self.store = store
         self.propose = propose
+        self.authority = FounderAuthority(store)
 
     def _put(
         self, table: str, record_id: str, status: str, payload: dict[str, Any]
@@ -480,6 +482,9 @@ class AdvancedDCML:
         provenance: list[str],
         approval_id: str,
     ) -> str:
+        action_hash = _hash({"name": name, "purpose": purpose, "steps": steps, "provenance": provenance})
+        if not self.authority.verify(approval_id, f"create_skill:{name}", action_hash):
+            raise PermissionError("Cryptographic founder skill approval required")
         payload = {
             "name": name,
             "purpose": purpose,
@@ -556,6 +561,11 @@ class AdvancedDCML:
         self, mission_id: str, outcome: str, reward: float, evidence: list[str]
     ) -> list[str]:
         mission = self._get("missions_v2", mission_id)
+        if mission["status"] == "VERIFIED" or mission["payload"].get("completion_status") == "COMPLETED":
+            return [row["id"] for row in self.store.query(
+                "SELECT id FROM temporal_credit WHERE payload LIKE ? ORDER BY created_at",
+                (f'%"mission_id":"{mission_id}"%',),
+            )]
         data = mission["payload"]
         data["outcomes"].append(outcome)
         data["evidence"].extend(evidence)

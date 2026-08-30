@@ -26,10 +26,16 @@ class RuntimeClient:
             data=json.dumps(data).encode() if data is not None else None,
         )
         try:
-            with urlopen(request, timeout=125) as response:
-                return json.loads(response.read())
+            with urlopen(request, timeout=1810) as response:
+                raw = response.read()
+                return json.loads(raw) if raw else None
         except HTTPError as exc:
-            detail = json.loads(exc.read()).get("detail", str(exc))
+            raw = exc.read()
+            try:
+                decoded = json.loads(raw) if raw else {}
+                detail = decoded.get("detail", str(exc)) if isinstance(decoded, dict) else str(exc)
+            except (json.JSONDecodeError, UnicodeDecodeError):
+                detail = raw.decode("utf-8", errors="replace").strip() or str(exc)
             raise RuntimeError(detail) from exc
         except (URLError, OSError) as exc:
             raise RuntimeUnavailable(

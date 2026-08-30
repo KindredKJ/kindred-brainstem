@@ -29,7 +29,7 @@ class SwitchRequest(BaseModel):
 
 
 class LearningDecision(BaseModel):
-    founder: str
+    approval_id: str
 
 
 class LearningEvaluation(BaseModel):
@@ -272,7 +272,7 @@ def build_app(
     @app.post("/learning/{learning_id}/approve")
     def learning_approve(learning_id: str, request: LearningDecision) -> dict[str, Any]:
         try:
-            return runtime.model.approve_learning(learning_id, request.founder)
+            return runtime.model.approve_learning(learning_id, request.approval_id)
         except (KeyError, ValueError) as exc:
             raise HTTPException(409, str(exc)) from exc
         except PermissionError as exc:

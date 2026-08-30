@@ -38,7 +38,11 @@ class RuntimeService:
             database = "UNAVAILABLE"
         models = {}
         for name, adapter in self.adapters.items():
-            health = adapter.health()
+            try:
+                health = adapter.health()
+            except Exception as exc:
+                models[name] = {"status": "UNAVAILABLE", "detail": f"health probe failed: {type(exc).__name__}"}
+                continue
             models[name] = {"status": health.status, "detail": health.detail}
         model_available = any(item["status"] == "HEALTHY" for item in models.values())
         status = "HEALTHY" if database == "HEALTHY" and model_available else "DEGRADED"
@@ -99,8 +103,11 @@ class RuntimeService:
         return self.store.create_session(selected, repository)
 
     def switch(self, session_id: str, model: str) -> dict[str, Any]:
+        self.store.session(session_id)
         if model != "auto" and model not in self.adapters:
             raise KeyError(f"Unknown model: {model}")
+        if model != "auto" and self.adapters[model].health().status != "HEALTHY":
+            raise RuntimeError(f"Model {model} is not healthy")
         self.store.set_model(session_id, model)
         return self.store.session(session_id)
 

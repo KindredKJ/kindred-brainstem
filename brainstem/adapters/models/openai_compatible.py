@@ -48,7 +48,12 @@ class OpenAICompatibleAdapter(ModelAdapter):
                 "NOT_CONFIGURED", "Set KINDRED_MODEL_BASE_URL and KINDRED_MODEL_NAME."
             )
         try:
-            self._request("/models")
+            result = self._request("/models")
+            identifiers = {
+                item.get("id") for item in result.get("data", []) if isinstance(item, dict)
+            }
+            if self.model not in identifiers:
+                return ModelHealth("UNAVAILABLE", "Configured model is absent from /models.")
             return ModelHealth(
                 "HEALTHY", "Configured endpoint answered the models probe."
             )

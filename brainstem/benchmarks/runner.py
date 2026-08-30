@@ -84,6 +84,9 @@ class FrontierRunner:
             raise PermissionError(
                 "hidden, private-test, and answer-key partitions are forbidden"
             )
+        if partition not in spec.partitions:
+            raise ValueError(f"unknown benchmark partition alias: {partition}")
+        resolved_partition = spec.partitions[partition]
         if (
             configuration
             in {
@@ -120,8 +123,8 @@ class FrontierRunner:
         raw = []
         failures: dict[str, int] = {}
         with tempfile.TemporaryDirectory(prefix="kindred-benchmark-") as td:
-            workspace = Path(td)
-            os.chmod(workspace, 0o700)
+            workspace_root = Path(td)
+            os.chmod(workspace_root, 0o700)
             contamination = ContaminationScanner().scan(
                 [Path.cwd()], signatures, signature_sources or []
             )
@@ -131,18 +134,21 @@ class FrontierRunner:
                 )
             for seed in seeds[:repetitions]:
                 try:
+                    workspace = workspace_root / f"seed-{seed}-{len(raw)}"
+                    workspace.mkdir(mode=0o700)
                     item = adapter_for(spec).execute(
-                        workspace, configuration.value, seed, partition, checkpoint
+                        workspace, configuration.value, seed, resolved_partition, checkpoint
                     )
                     raw.append(item)
-                    values.append(
-                        float(
-                            item.get(
-                                "accuracy",
-                                item.get("task_success_rate", item.get("pass_at_1", 0)),
-                            )
-                        )
-                    )
+                    metric_name = spec.official_metrics[0]
+                    aliases = {"pass@1": ("pass@1", "pass_at_1")}.get(metric_name, (metric_name,))
+                    present = next((name for name in aliases if name in item), None)
+                    if present is None or isinstance(item[present], bool):
+                        raise ValueError(f"evaluator omitted official metric {metric_name}")
+                    value = float(item[present])
+                    if not math.isfinite(value):
+                        raise ValueError(f"evaluator returned invalid metric {metric_name}")
+                    values.append(value)
                 except Exception as exc:
                     kind = type(exc).__name__
                     failures[kind] = failures.get(kind, 0) + 1
@@ -217,14 +223,14 @@ class FrontierRunner:
             "benchmark": slug,
             "category": "EXTERNAL_FRONTIER_BENCHMARK",
             "configuration": configuration.value,
-            "status": "COMPLETED" if values else "FAILED",
+            "status": "COMPLETED" if len(values) == repetitions else "FAILED",
             "tool_policy": (
                 ToolPolicy.STANDARD.value
                 if os.getenv("KINDRED_BENCHMARK_TOOL_POLICY_VERIFIED") == "1"
                 else ToolPolicy.NONSTANDARD.value
             ),
             "official_score": bool(
-                values
+                len(values) == repetitions
                 and os.getenv("KINDRED_BENCHMARK_TOOL_POLICY_VERIFIED") == "1"
                 and os.getenv("KINDRED_BENCHMARK_EVALUATOR_VERIFIED") == "1"
                 and manifest.dataset_hash != "UNVERIFIED"
