@@ -67,7 +67,8 @@ def activate(model, payload=None):
         "strategy", payload or learned_strategy_payload(), ["test-evidence"]
     )
     model.evaluate_learning(learning_id, 0.95, ["evaluation-evidence"])
-    model.approve_learning(learning_id, "Kindred Jermaine Cox")
+    approval = model.dcml.authority.sign(f"promote_learning:{learning_id}", "learning")
+    model.approve_learning(learning_id, approval)
     model.promote_learning(learning_id)
     model.activate_learning(learning_id)
     return learning_id
@@ -120,11 +121,12 @@ def test_learning_requires_approval_and_approved_strategy_changes_selection(tmp_
     model, _, _, _ = make_model(tmp_path)
     learning_id = model.learn("strategy", learned_strategy_payload(), ["evidence"])
     model.evaluate_learning(learning_id, 0.9, ["evaluation"])
-    with pytest.raises(ValueError):
+    with pytest.raises(PermissionError):
         model.promote_learning(learning_id)
     with pytest.raises(PermissionError):
         model.approve_learning(learning_id, "not-founder")
-    model.approve_learning(learning_id, "Kindred Jermaine Cox")
+    approval = model.dcml.authority.sign(f"promote_learning:{learning_id}", "learning")
+    model.approve_learning(learning_id, approval)
     model.promote_learning(learning_id)
     assert model.reason("x", model.recall("x"))[0].name != "approved_strategy"
     model.activate_learning(learning_id)
@@ -244,3 +246,21 @@ def test_reference_dataset_never_claims_weight_training(tmp_path):
     assert dataset.parameter_training_performed is False
     assert dataset.status == "REFERENCE_ONLY"
     assert experience in dataset.evaluation_split
+
+
+def test_recall_is_session_scoped_and_escapes_sql_wildcards(tmp_path):
+    model, store, session, _ = make_model(tmp_path)
+    other = store.create_session(None)
+    model.perceive(session["id"], "literal 100%_match")
+    model.perceive(other["id"], "literal 100XXmatch private")
+    recalled = model.recall("100%_match", session_id=session["id"])
+    assert [item["input"] for item in recalled["experiences"]] == ["literal 100%_match"]
+
+
+def test_world_relationship_requires_existing_endpoints(tmp_path):
+    from brainstem.model.schemas import WorldRelationship
+    model, store, _, _ = make_model(tmp_path)
+    relation = WorldRelationship(id="r", source_id="missing-a", target_id="missing-b", kind="blocks", confidence=1, provenance=[])
+    with pytest.raises(ValueError):
+        model.add_world_relationship(relation)
+    assert not store.query("SELECT * FROM world_relationships")

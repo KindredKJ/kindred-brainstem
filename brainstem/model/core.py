@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import json
 import uuid
+import threading
+from pathlib import Path
 from typing import Any
 
 from brainstem.adapters.models import ModelAdapter
@@ -54,6 +56,7 @@ class BrainstemModel:
     ) -> None:
         self.store = store
         self.instruments = instruments or {}
+        self._state_lock = threading.RLock()
         self._ensure_state()
         self.dcml = DCMLLearning(store)
 
@@ -119,20 +122,21 @@ class BrainstemModel:
         )
         return experience_id
 
-    def recall(self, query: str, limit: int = 8) -> dict[str, list[dict[str, Any]]]:
-        pattern = f"%{query.lower()}%"
+    def recall(self, query: str, limit: int = 8, session_id: str | None = None) -> dict[str, list[dict[str, Any]]]:
+        escaped = query.lower().replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+        pattern = f"%{escaped}%"
         beliefs = self.store.query(
-            "SELECT * FROM beliefs WHERE lower(subject || ' ' || predicate || ' ' || object) LIKE ? ORDER BY confidence DESC LIMIT ?",
+            "SELECT * FROM beliefs WHERE lower(subject || ' ' || predicate || ' ' || object) LIKE ? ESCAPE '\\' ORDER BY confidence DESC LIMIT ?",
             (pattern, limit),
         )
         memories = self.store.query(
-            "SELECT * FROM memory WHERE lower(content) LIKE ? ORDER BY created_at DESC LIMIT ?",
+            "SELECT * FROM memory WHERE status='ACTIVE' AND lower(content) LIKE ? ESCAPE '\\' ORDER BY created_at DESC LIMIT ?",
             (pattern, limit),
         )
         experiences = self.store.query(
-            "SELECT id,input,result,created_at FROM experiences WHERE lower(input) LIKE ? ORDER BY created_at DESC LIMIT ?",
-            (pattern, limit),
-        )
+            "SELECT id,input,result,created_at FROM experiences WHERE session_id=? AND lower(input) LIKE ? ESCAPE '\\' ORDER BY created_at DESC LIMIT ?",
+            (session_id, pattern, limit),
+        ) if session_id else []
         return {"beliefs": beliefs, "memories": memories, "experiences": experiences}
 
     def add_belief(
@@ -204,6 +208,11 @@ class BrainstemModel:
         )
 
     def add_world_relationship(self, relation: WorldRelationship) -> None:
+        endpoints = self.store.query(
+            "SELECT id FROM world_nodes WHERE id IN (?,?)", (relation.source_id, relation.target_id)
+        )
+        if len({row["id"] for row in endpoints}) != 2:
+            raise ValueError("World relationship endpoints must both exist")
         self.store.execute(
             "INSERT INTO world_relationships VALUES(?,?,?,?,?,?,?,?,?)",
             (
@@ -218,6 +227,7 @@ class BrainstemModel:
                 now(),
             ),
         )
+        self.store.event("world.relationship_added", {"relationship_id": relation.id, "source_id": relation.source_id, "target_id": relation.target_id})
 
     def world(self) -> dict[str, Any]:
         return {
@@ -358,6 +368,12 @@ class BrainstemModel:
         if instrument not in self.instruments:
             raise KeyError(f"Unknown cognitive instrument: {instrument}")
         adapter = self.instruments[instrument]
+        session = self.store.session(session_id)
+        repository = session.get("repository")
+        if adapter.identity == "codex":
+            if not repository or not (Path(repository).resolve() / ".git").exists():
+                raise RuntimeError("Codex sessions require a valid repository")
+            adapter.cwd = str(Path(repository).resolve())
         telemetry_id = _id("KTEL")
         messages = self._frame_task(session_id, text, strategy, recalled)
         try:
@@ -475,7 +491,7 @@ class BrainstemModel:
                     "model_id": model_id,
                     "health": health.status,
                     "privacy_classes": getattr(
-                        adapter, "privacy_classes", ["PUBLIC", "INTERNAL"]
+                        adapter, "privacy_classes", []
                     ),
                     "cost": float(getattr(adapter, "estimated_cost", 0.0)),
                     "latency_ms": float(getattr(adapter, "estimated_latency_ms", 1000)),
@@ -505,8 +521,13 @@ class BrainstemModel:
         cycle_id = _id("KCYCLE")
         if instrument == "auto":
             instrument = self.route_instrument(text)
+        with self._state_lock:
+            return self._cognitive_cycle_locked(session_id, text, instrument, context, cycle_id)
+
+    def _cognitive_cycle_locked(self, session_id: str, text: str, instrument: str,
+                                context: dict[str, Any] | None, cycle_id: str) -> CognitiveResult:
         experience_id = self.perceive(session_id, text, context)
-        recalled = self.recall(text)
+        recalled = self.recall(text, session_id=session_id)
         candidates = self.reason(text, recalled)
         strategy = self.decide(candidates)
         prediction, _ = self.simulate(strategy, text)
@@ -647,20 +668,9 @@ class BrainstemModel:
             {"score": score, "evidence": evidence},
         )
 
-    def approve_learning(self, learning_id: str, founder: str) -> dict[str, Any]:
-        if founder != FOUNDER:
-            raise PermissionError("Founder approval required")
-        approval_id = _id("KAPR")
-        self.store.execute(
-            "INSERT INTO approvals VALUES(?,?,?,?,?)",
-            (
-                approval_id,
-                f"promote_learning:{learning_id}",
-                "APPROVED",
-                founder,
-                now(),
-            ),
-        )
+    def approve_learning(self, learning_id: str, approval_id: str) -> dict[str, Any]:
+        if not self.dcml.authority.verify(approval_id, f"promote_learning:{learning_id}"):
+            raise PermissionError("Cryptographic founder approval required")
         return self._transition_learning(
             learning_id, LearningStatus.APPROVED, approval_id=approval_id
         )
@@ -677,13 +687,19 @@ class BrainstemModel:
         return self._transition_learning(learning_id, LearningStatus.REJECTED)
 
     def promote_learning(self, learning_id: str) -> dict[str, Any]:
+        existing = self.learning(learning_id)
+        if not existing or not existing[0].get("approval_id") or not self.dcml.authority.verify(
+            existing[0]["approval_id"], f"promote_learning:{learning_id}"
+        ):
+            raise PermissionError("Valid founder approval required for promotion")
         row = self._transition_learning(learning_id, LearningStatus.PROMOTED)
         payload = json.loads(row["payload"])
         if row["kind"] in {"strategy", "strategy_evaluation"}:
             strategy = payload.get("strategy", payload)
-            strategy_id = strategy.get("id", _id("KSTR"))
+            base_id = strategy.get("id", _id("KSTR"))
+            strategy_id = f"{base_id}-V{row['revision']}"
             self.store.execute(
-                "INSERT OR REPLACE INTO strategies VALUES(?,?,?,?,?,?,?,?,?,?,?)",
+                "INSERT INTO strategies VALUES(?,?,?,?,?,?,?,?,?,?,?)",
                 (
                     strategy_id,
                     strategy.get("name", "learned_strategy"),
@@ -822,6 +838,18 @@ class BrainstemModel:
             self.store.execute(
                 "UPDATE strategies SET status=? WHERE id=?",
                 (strategy["status"], strategy["id"]),
+            )
+        snapshot_learning = {item["id"]: item for item in snapshot["learning"]}
+        for learning_id, item in snapshot_learning.items():
+            self.store.execute(
+                "UPDATE learning_proposals SET status=?,evaluation=?,approval_id=?,revision=?,updated_at=? WHERE id=?",
+                (item["status"], item["evaluation"], item["approval_id"], item["revision"], now(), learning_id),
+            )
+        if snapshot_learning:
+            placeholders = ",".join("?" for _ in snapshot_learning)
+            self.store.execute(
+                f"UPDATE learning_proposals SET status='ROLLED_BACK',updated_at=? WHERE id NOT IN ({placeholders}) AND status IN ('PROMOTED','ACTIVE')",
+                (now(), *snapshot_learning),
             )
         self.store.event(
             "dcml.checkpoint_rolled_back", {"checkpoint_id": checkpoint_id}

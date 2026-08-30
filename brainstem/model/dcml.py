@@ -539,7 +539,7 @@ class DCMLLearning:
         payload: dict[str, Any] = {
             "phase": phase,
             "task_success_rate": sum(successes) / len(successes),
-            "verified_outcome_rate": 1.0,
+            "verified_outcome_rate": None,
             "prediction_error": 1 - sum(successes) / len(successes),
             "brier_score": sum((1 - x) ** 2 for x in successes) / len(successes),
             "expected_calibration_error": 1 - sum(successes) / len(successes),
@@ -553,6 +553,7 @@ class DCMLLearning:
             "latency_per_verified_outcome": 0.0,
             "retention_score": 1.0,
             "regression_count": 0,
+            "case_successes": successes,
             "metric_version": METRIC_VERSION,
         }
         self._put("benchmark_runs", _id("KBENCH"), "VERIFIED", payload)
@@ -562,7 +563,12 @@ class DCMLLearning:
         self, checkpoint_id: str, cases: list[dict[str, Any]], baseline: float
     ) -> str:
         checkpoint = self._get("policy_parameters", checkpoint_id)
+        baseline_result = self.benchmark(cases, self._parameters(), "canary_baseline")
         result = self.benchmark(cases, checkpoint["payload"]["parameters"], "canary")
+        result["regression_count"] = sum(
+            before == 1.0 and after == 0.0
+            for before, after in zip(baseline_result["case_successes"], result["case_successes"], strict=True)
+        )
         passed = (
             result["task_success_rate"] > baseline and result["regression_count"] == 0
         )
@@ -601,6 +607,8 @@ class DCMLLearning:
 
     def rollback_policy(self, checkpoint_id: str, approval_id: str) -> None:
         target = self._get("policy_parameters", checkpoint_id)
+        if target["status"] not in {"ACTIVE", "ROLLED_BACK"}:
+            raise PermissionError("Rollback target was never an active governed checkpoint")
         if not self.authority.verify(
             approval_id, f"rollback:{checkpoint_id}", target["content_hash"]
         ):

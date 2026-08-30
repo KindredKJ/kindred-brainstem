@@ -419,6 +419,7 @@ class StateStore:
         destination.parent.mkdir(parents=True, exist_ok=True)
         with self.connect() as source, sqlite3.connect(destination) as target:
             source.backup(target)
+        os.chmod(destination, 0o600)
         self.event("state.backed_up", {"destination": str(destination)})
         return destination
 
@@ -432,10 +433,18 @@ class StateStore:
             raise FileNotFoundError(backup)
         destination = destination.expanduser().resolve()
         destination.parent.mkdir(parents=True, exist_ok=True)
-        with sqlite3.connect(backup) as source, sqlite3.connect(destination) as target:
+        with sqlite3.connect(backup) as source:
             if source.execute("PRAGMA integrity_check").fetchone()[0] != "ok":
                 raise ValueError("Backup failed SQLite integrity check")
-            source.backup(target)
+            tables = {row[0] for row in source.execute("SELECT name FROM sqlite_master WHERE type='table'")}
+            if not {"schema_migrations", "cognitive_states", "sessions"}.issubset(tables):
+                raise ValueError("Backup is not a BRAINSTEM state database")
+            versions = {row[0] for row in source.execute("SELECT version FROM schema_migrations")}
+            if not {1, 2, 3, 4}.issubset(versions):
+                raise ValueError("Backup schema is incomplete or unsupported")
+            with sqlite3.connect(destination) as target:
+                source.backup(target)
+        os.chmod(destination, 0o600)
         restored = cls(destination, audit_path)
         restored.event("state.restored", {"source": str(backup)})
         return restored
