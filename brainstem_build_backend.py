@@ -18,9 +18,9 @@ def _metadata(base):
         fields.append(f'Provides-Extra: {extra}')
         for dependency in dependencies:
             fields.append(f'Requires-Dist: {dependency}; extra == "{extra}"')
-    (d/'METADATA').write_text('\\n'.join(fields) + '\\n', encoding='utf-8')
-    (d/'WHEEL').write_text('Wheel-Version: 1.0\\nGenerator: brainstem-build-backend\\nRoot-Is-Purelib: true\\nTag: py3-none-any\\n', encoding='utf-8')
-    (d/'entry_points.txt').write_text('[console_scripts]\\nkindred = brainstem.cli.app:app\\nbrainstem = brainstem.cli.app:app\\nbstem = brainstem.cli.app:app\\nkbs = brainstem.cli.app:app\\n', encoding='utf-8')
+    (d/'METADATA').write_text('\n'.join(fields) + '\n', encoding='utf-8')
+    (d/'WHEEL').write_text('Wheel-Version: 1.0\nGenerator: brainstem-build-backend\nRoot-Is-Purelib: true\nTag: py3-none-any\n', encoding='utf-8')
+    (d/'entry_points.txt').write_text('[console_scripts]\nkindred = brainstem.cli.app:app\nbrainstem = brainstem.cli.app:app\nbstem = brainstem.cli.app:app\nkbs = brainstem.cli.app:app\n', encoding='utf-8')
     (d/'RECORD').write_text('', encoding='utf-8')
     return DIST
 def prepare_metadata_for_build_editable(metadata_directory, config_settings=None): return _metadata(metadata_directory)
