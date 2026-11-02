@@ -59,6 +59,19 @@ _DATA = [
         "KINDRED_BENCHMARK_ARC_AGI_2_CMD",
     ),
     (
+        "ARC-AGI-3",
+        "arc-agi-3",
+        "interactive_generalization",
+        "2026",
+        "https://github.com/arcprize/arc-agi-3-benchmarking",
+        "MIT reference harness; official evaluation and competition terms apply",
+        ["official_environment", "agent", "evaluator"],
+        ["task_success_rate"],
+        {"interactive_environment": True, "official_harness": True, "offline_competition": True},
+        {"held_out": "official"},
+        "KINDRED_BENCHMARK_ARC_AGI_3_CMD",
+    ),
+    (
         "Berkeley Function Calling Leaderboard",
         "bfcl",
         "tool_use",
@@ -213,7 +226,7 @@ class BenchmarkRegistry:
 
 SUITES = {
     "frontier-core": ["arc-agi-2", "gpqa-diamond", "mmlu-pro", "livebench"],
-    "frontier-agentic": ["gaia", "browsecomp", "bfcl", "swe-bench-verified"],
+    "frontier-agentic": ["gaia", "browsecomp", "bfcl", "swe-bench-verified", "arc-agi-3"],
 }
 SUITES["frontier-full"] = [
     *SUITES["frontier-core"],
