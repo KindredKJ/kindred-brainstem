@@ -74,7 +74,8 @@ def _trace_check(manifest_path: Path, bundle: dict) -> bool:
         target.relative_to(root)
         if not target.is_file() or target.stat().st_size > MAX_TRACE_BYTES:
             return False
-        digest = hashlib.file_digest(target.open("rb"), "sha256").hexdigest()
+        with target.open("rb") as stream:
+            digest = hashlib.file_digest(stream, "sha256").hexdigest()
         return digest.lower() == bundle["agent_trace_sha256"].lower()
     except (OSError, ValueError):
         return False
@@ -112,7 +113,7 @@ def verify_bundle(manifest_path: Path, fetcher=_fetch_json, environ=None) -> dic
     github_url = f"https://api.github.com/repos/{quote(owner)}/{quote(name)}/commits/{bundle['commit']}"
     try:
         commit = fetcher(github_url, env.get("GITHUB_TOKEN"))
-        record("github_commit_api", isinstance(commit, dict) and commit.get("sha", "").lower() == bundle["commit"].lower(),
+        record("github_commit_api", isinstance(commit, dict) and str(commit.get("sha", "")).lower() == bundle["commit"].lower(),
                "commit was not confirmed by GitHub's API")
     except (HTTPError, URLError, TimeoutError, ValueError, OSError, KeyError) as exc:
         record("github_commit_api", False, f"GitHub API check failed ({type(exc).__name__})")
@@ -128,7 +129,7 @@ def verify_bundle(manifest_path: Path, fetcher=_fetch_json, environ=None) -> dic
             release = fetcher(f"https://{host}/.well-known/kindred-release.json", None)
             record("deployment_release_metadata",
                    isinstance(release, dict)
-                   and release.get("commit", "").lower() == bundle["commit"].lower()
+                   and str(release.get("commit", "")).lower() == bundle["commit"].lower()
                    and release.get("run_id") == bundle["run_id"],
                    "deployment did not return matching commit and run_id metadata")
         except (HTTPError, URLError, TimeoutError, ValueError, OSError, KeyError) as exc:
