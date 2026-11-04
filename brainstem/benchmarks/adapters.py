@@ -110,6 +110,10 @@ class ARCAGI2Adapter(OfficialCommandAdapter):
     pass
 
 
+class ARCAGI3Adapter(OfficialCommandAdapter):
+    pass
+
+
 class BFCLAdapter(OfficialCommandAdapter):
     pass
 
@@ -147,6 +151,7 @@ ADAPTER_TYPES = {
     "gpqa-diamond": GPQADiamondAdapter,
     "livebench": LiveBenchAdapter,
     "arc-agi-2": ARCAGI2Adapter,
+    "arc-agi-3": ARCAGI3Adapter,
     "bfcl": BFCLAdapter,
     "gaia": GAIAAdapter,
     "gaia2": GAIA2Adapter,
