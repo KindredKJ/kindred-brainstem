@@ -17,7 +17,7 @@ def test_registry_is_external_complete_and_conservative(monkeypatch):
             monkeypatch.delenv(key, raising=False)
     registry = BenchmarkRegistry()
     rows = registry.list()
-    assert len(rows) == 12
+    assert len(rows) == 13
     assert all(row["category"] == "EXTERNAL_FRONTIER_BENCHMARK" for row in rows)
     assert all(
         row["status"]
