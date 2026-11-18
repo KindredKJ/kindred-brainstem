@@ -104,6 +104,21 @@ class RuntimeService:
         self.store.set_model(session_id, model)
         return self.store.session(session_id)
 
+    def create_native_session(self, repository: str | None = None) -> dict[str, Any]:
+        """Native BRAINSTEM state/policy cognition; no provider health requirement."""
+        return self.store.create_session("brainstem-native", repository)
+
+    def native_cycle(
+        self, session_id: str, message: str, context: dict[str, Any] | None = None
+    ) -> dict[str, Any]:
+        session = self.store.session(session_id)
+        if session["model"] != "brainstem-native":
+            raise ValueError("Session is not a native BRAINSTEM cognitive session")
+        # The native model owns all cognitive decisions and durable state.
+        result = self.model.native_cycle(session_id, message, context)
+        self.store.add_message(session_id, "user", message, "brainstem-native")
+        return result
+
     def chat(self, session_id: str, text: str) -> dict[str, Any]:
         session = self.store.session(session_id)
         model_name = session["model"]
