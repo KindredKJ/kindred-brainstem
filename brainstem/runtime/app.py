@@ -42,6 +42,12 @@ class DCMLCycleRequest(BaseModel):
     message: str
 
 
+class NativeDCMLCycleRequest(BaseModel):
+    session_id: str
+    message: str
+    context: dict[str, Any] | None = None
+
+
 def build_app(
     database: Path | None = None, service: RuntimeService | None = None
 ) -> FastAPI:
@@ -59,6 +65,24 @@ def build_app(
     @app.post("/dcml/cycle")
     def dcml_cycle(request: DCMLCycleRequest) -> dict[str, Any]:
         return runtime.chat(request.session_id, request.message)
+
+    @app.post("/dcml/native-sessions")
+    def native_session(request: SessionRequest) -> dict[str, Any]:
+        # Caller cannot switch this endpoint onto an external adapter.
+        if request.model not in (None, "brainstem-native"):
+            raise HTTPException(422, "Use /sessions for nonnative model instruments")
+        return runtime.create_native_session(request.repository)
+
+    @app.post("/dcml/native-cycle")
+    def native_cycle(request: NativeDCMLCycleRequest) -> dict[str, Any]:
+        try:
+            return runtime.native_cycle(
+                request.session_id, request.message, request.context
+            )
+        except KeyError as exc:
+            raise HTTPException(404, "Native session not found") from exc
+        except ValueError as exc:
+            raise HTTPException(422, str(exc)) from exc
 
     @app.get("/dcml/experiences")
     def dcml_experiences() -> list[dict[str, Any]]:

@@ -495,6 +495,105 @@ class BrainstemModel:
         )
         return str(route["selected_model"])
 
+    def native_cycle(
+        self,
+        session_id: str,
+        text: str,
+        context: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        """Run BRAINSTEM's existing DCML cognition without a generation instrument.
+
+        This is actual stateful, structured policy inference: recall, select a
+        learned/baseline strategy, predict, compare a counterfactual, and record
+        evidence. It does NOT claim to synthesize open-ended language or verify
+        the predicted real-world outcome.
+        """
+        if not isinstance(text, str) or not text.strip() or len(text) > 2000:
+            raise ValueError("native DCML objective must be 1-2000 characters")
+        if context is not None and (
+            not isinstance(context, dict)
+            or len(json.dumps(context, sort_keys=True).encode("utf-8")) > 8192
+        ):
+            raise ValueError("native DCML context must be a small JSON object")
+        cycle_id = _id("KCYCLE")
+        # Recall BEFORE recording this input, so it cannot recall itself as
+        # previous experience and inflate its own memory-evidence count.
+        recalled = self.recall(text)
+        candidates = self.reason(text, recalled)
+        strategy = self.decide(candidates)
+        experience_id = self.perceive(session_id, text, context)
+        prediction, counterfactual = self.simulate(strategy, text)
+        self.store.execute(
+            "UPDATE experiences SET result=? WHERE id=?",
+            (
+                json.dumps(
+                    {
+                        "status": "prediction_pending_verification",
+                        "mode": "native_structured_dcml",
+                        "strategy_id": strategy.id,
+                        "prediction_id": prediction.id,
+                        "counterfactual_id": counterfactual.id,
+                    },
+                    sort_keys=True,
+                ),
+                experience_id,
+            ),
+        )
+        evidence_id = self.store.add_evidence(
+            session_id,
+            "dcml_native_policy_cycle",
+            {
+                "cycle_id": cycle_id,
+                "experience_id": experience_id,
+                "strategy_id": strategy.id,
+                "prediction_id": prediction.id,
+                "counterfactual_id": counterfactual.id,
+                "instrument": None,
+                "outcome_verified": False,
+            },
+            status="OBSERVED_LOCAL",
+        )
+        state = self.inspect_state()
+        state.current_context = context or {}
+        state.working_memory = [text]
+        state.episodic_memory.append(experience_id)
+        state.capability_history.append("native_dcml_policy")
+        state.uncertainty = 1.0 - strategy.confidence
+        state.revision += 1
+        self._save_state(state)
+        self.store.event(
+            "dcml.native_cycle",
+            {
+                "cycle_id": cycle_id,
+                "session_id": session_id,
+                "evidence_id": evidence_id,
+                "state_revision": state.revision,
+                "external_instrument_used": False,
+                "external_outcome_verified": False,
+            },
+        )
+        return {
+            "schema": "kindred.brainstem.native-dcml.v1",
+            "model_identity": self.state_id,
+            "cycle_id": cycle_id,
+            "session_id": session_id,
+            "strategy": strategy.model_dump(),
+            "prediction": prediction.model_dump(),
+            "counterfactual": counterfactual.model_dump(),
+            "recalled": {
+                kind: len(recalled[kind])
+                for kind in ("beliefs", "memories", "experiences")
+            },
+            "evidence_id": evidence_id,
+            "state_revision": state.revision,
+            "uncertainty_estimate": state.uncertainty,
+            "inference_mode": "native_structured_policy",
+            "external_instrument_used": False,
+            "language_generation_performed": False,
+            "external_outcome_verified": False,
+            "learning_status": "not_evaluated",
+        }
+
     def cognitive_cycle(
         self,
         session_id: str,
