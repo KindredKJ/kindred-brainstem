@@ -124,22 +124,25 @@ try{
   $bp=Start-Process -FilePath $bPython -WorkingDirectory $br -ArgumentList @('-m','uvicorn','brainstem.runtime.app:app','--host','127.0.0.1','--port',"$BrainPort") -PassThru -RedirectStandardOutput (Join-Path $root 'brainstem.out.log') -RedirectStandardError $bErr
   $null=WaitUrl "http://127.0.0.1:$BrainPort/health" $bp $bErr
   $eBase="http://127.0.0.1:$EmitPort";$bBase="http://127.0.0.1:$BrainPort"
-  try{Invoke-WebRequest "$eBase/runtime/workers/inventory" -TimeoutSec 3 | Out-Null; throw 'EMIT accepted unauthenticated inventory request'}
-  catch{if(-not $_.Exception.Response -or [int]$_.Exception.Response.StatusCode -ne 401){throw}}
+  $unauthorized = Invoke-WebRequest -Uri "$eBase/runtime/workers/inventory" -NoProxy -TimeoutSec 15 -SkipHttpErrorCheck -ErrorAction Stop
+  if ([int]$unauthorized.StatusCode -ne 401) {
+    throw "EMIT inventory must reject unauthenticated access with 401; observed HTTP $([int]$unauthorized.StatusCode)"
+  }
+  Write-Host 'EMIT unauthenticated inventory denied as expected (HTTP 401)'
   $ehdr=@{'X-Kindred-Internal-Key'=$env:KINDRED_INTERNAL_SERVICE_KEY}
   $bhdr=@{'X-Brainstem-Awareness-Key'=$env:BRAINSTEM_AWARENESS_KEY}
-  $i=Invoke-RestMethod "$eBase/runtime/workers/inventory" -Headers $ehdr
+  $i=Invoke-RestMethod "$eBase/runtime/workers/inventory" -Headers $ehdr -NoProxy -TimeoutSec 20
   if($i.schema_version -ne 'kindred.workforce.inventory.v1' -or $i.summary.configured_lane_definitions -ne 14 -or $i.summary.online_lane_workers -lt 1){throw 'EMIT live worker contract failed'}
-  $s=Invoke-RestMethod "$bBase/awareness/sync" -Method Post -Headers $bhdr
-  $w=Invoke-RestMethod "$bBase/awareness/workers"
-  $world=Invoke-RestMethod "$bBase/world"
+  $s=Invoke-RestMethod "$bBase/awareness/sync" -Method Post -Headers $bhdr -NoProxy -TimeoutSec 20
+  $w=Invoke-RestMethod "$bBase/awareness/workers" -NoProxy -TimeoutSec 20
+  $world=Invoke-RestMethod "$bBase/world" -NoProxy -TimeoutSec 20
   if($s.status -ne 'observations_available' -or $w.summary.online_workers -ne $i.summary.online_lane_workers){throw 'BRAINSTEM live worker counts failed'}
   if($world.operational_awareness.source_of_truth -ne 'brainstem_local_state'){throw 'BRAINSTEM cognition world not connected'}
   if($w.summary.registered_emit_agent_records -ne $i.summary.registered_agent_records){throw 'Agent registration distinction failed'}
   Write-Host 'Live sync passed. Testing worker loss; waiting 65 seconds for observation TTL.'
   Stop-Process -Id $ep.Id -Force; $null=$ep.WaitForExit(10000)
   Start-Sleep -Seconds 65
-  $stale=Invoke-RestMethod "$bBase/awareness/workers"
+  $stale=Invoke-RestMethod "$bBase/awareness/workers" -NoProxy -TimeoutSec 20
   if($stale.summary.online_workers -ne 0){throw 'Stale workers incorrectly online'}
   $stillFresh=@($stale.workers | Where-Object {$_.source -eq 'kindred_emit_core' -and $_.status -ne 'stale'})
   if($stillFresh.Count -gt 0){throw 'Worker loss was not marked stale'}
