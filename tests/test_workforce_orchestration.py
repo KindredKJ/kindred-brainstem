@@ -313,3 +313,40 @@ def test_api_contract_registration_and_access_control(tmp_path, monkeypatch):
             "output_schema": {"type": "object"},
         })
         assert duplicate.status_code == 422
+
+
+def test_expired_lease_reclaimed_with_backoff_and_audit(tmp_path):
+    store, aware, engine = _runtime(tmp_path)
+    row = engine.dispatch(
+        idempotency_key="lease-expiration-0001",
+        contract_id="runtime.snapshot@v1", payload={},
+    )
+    with store.connect() as db:
+        db.execute(
+            """UPDATE workforce_tasks
+               SET status='leased',attempt_count=1,lease_expires_at=?
+               WHERE task_id=?""",
+            ((datetime.now(timezone.utc) - timedelta(seconds=5)).isoformat(), row["task_id"]),
+        )
+    op = WorkforceOperatorSupervisor(store)
+    state = op.reconcile_once()
+    assert state["requeued"] == 1
+    current = engine.task(row["task_id"])
+    assert current["status"] == "queued"
+    assert datetime.fromisoformat(current["next_eligible_at"]) > datetime.now(timezone.utc)
+    assert store.query(
+        "SELECT * FROM operator_audit_log WHERE task_id=? AND action='requeued'",
+        (row["task_id"],),
+    )
+    assert op.reconcile_once()["requeued"] == 0
+
+
+def test_deactivated_contract_can_no_longer_dispatch(tmp_path):
+    _, _, engine = _runtime(tmp_path)
+    engine.contracts.deactivate_contract("runtime.snapshot@v1")
+    with pytest.raises(OrchestrationError) as exc:
+        engine.dispatch(
+            idempotency_key="retired-contract-0001",
+            contract_id="runtime.snapshot@v1", payload={},
+        )
+    assert exc.value.status_code == 422
