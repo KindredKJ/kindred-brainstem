@@ -20,6 +20,7 @@ from brainstem.model.schemas import (
     WorldRelationship,
 )
 from brainstem.runtime.store import StateStore, now
+from brainstem.runtime.workforce_awareness import OperationalAwareness
 
 FOUNDER = "Kindred Jermaine Cox"
 _ALLOWED_TRANSITIONS = {
@@ -56,6 +57,7 @@ class BrainstemModel:
         self.instruments = instruments or {}
         self._ensure_state()
         self.dcml = DCMLLearning(store)
+        self.awareness = OperationalAwareness(store)
 
     def _ensure_state(self) -> None:
         if self.store.query(
@@ -227,6 +229,7 @@ class BrainstemModel:
             "revision_history": self.store.query(
                 "SELECT * FROM events WHERE kind LIKE 'world.%'"
             ),
+            "operational_awareness": self.awareness.overview(),
         }
 
     def reason(
@@ -503,6 +506,7 @@ class BrainstemModel:
         context: dict[str, Any] | None = None,
     ) -> CognitiveResult:
         cycle_id = _id("KCYCLE")
+        context = {**(context or {}), "operational_awareness": self.awareness.overview()["summary"]}
         if instrument == "auto":
             instrument = self.route_instrument(text)
         experience_id = self.perceive(session_id, text, context)
