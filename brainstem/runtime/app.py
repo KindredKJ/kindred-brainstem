@@ -15,7 +15,6 @@ from pydantic import BaseModel, Field
 from brainstem.runtime.paths import global_state_dir
 from brainstem.runtime.service import RuntimeService
 from brainstem.runtime.store import StateStore
-from brainstem.runtime.workforce_awareness import OperationalAwareness
 
 
 class SessionRequest(BaseModel):
@@ -61,7 +60,7 @@ def build_app(
         os.getenv("KINDRED_STATE_DB", global_state_dir() / "brainstem.db")
     )
     runtime = service or RuntimeService(StateStore(db))
-    awareness = OperationalAwareness(runtime.store)
+    awareness = runtime.awareness
 
     async def _continuous_awareness() -> None:
         while True:
