@@ -90,10 +90,18 @@ try{
     & git -C $br pull --ff-only
     VerifyExit 'Update isolated BRAINSTEM branch'
     $checkedBrainPython=Join-Path $br '.venv\Scripts\python.exe'
+    $checkedEmitPython=Join-Path $er '.venv\Scripts\python.exe'
     Push-Location $br
     try {
-      & $checkedBrainPython -m pytest -q tests/test_workforce_awareness.py
-      VerifyExit 'Updated BRAINSTEM workforce tests'
+      & $checkedBrainPython -m pip install -e '.[dev]'
+      VerifyExit 'Updated BRAINSTEM orchestration dependencies'
+      & $checkedBrainPython -m pytest -q tests/test_workforce_awareness.py tests/test_workforce_orchestration.py
+      VerifyExit 'Updated BRAINSTEM workforce and orchestration tests'
+    } finally { Pop-Location }
+    Push-Location $er
+    try {
+      & $checkedEmitPython -m pytest -q cloud/tests/test_worker_inventory.py cloud/tests/test_workforce_execution.py
+      VerifyExit 'Updated EMIT worker execution tests'
     } finally { Pop-Location }
   }else{
   & git clone --depth 1 -b feature/native-workforce-inventory-20261118 https://github.com/KindredKJ/KINDRED_EMIT_CORE.git $er
@@ -108,13 +116,13 @@ try{
   try{
     & $ePython -m pip install -r requirements.txt; VerifyExit 'EMIT install'
     & $ePython -m pip check; VerifyExit 'EMIT pip check'
-    & $ePython -m pytest -q cloud/tests/test_worker_inventory.py; VerifyExit 'EMIT tests'
+    & $ePython -m pytest -q cloud/tests/test_worker_inventory.py cloud/tests/test_workforce_execution.py; VerifyExit 'EMIT tests'
   }finally{Pop-Location}
   Push-Location $br
   try{
     & $bPython -m pip install -e '.[dev]'; VerifyExit 'BRAINSTEM install'
     & $bPython -m pip check; VerifyExit 'BRAINSTEM pip check'
-    & $bPython -m pytest -q tests/test_workforce_awareness.py; VerifyExit 'BRAINSTEM tests'
+    & $bPython -m pytest -q tests/test_workforce_awareness.py tests/test_workforce_orchestration.py; VerifyExit 'BRAINSTEM tests'
   }finally{Pop-Location}
   }
   $ePython=Join-Path $er '.venv\Scripts\python.exe'
@@ -163,14 +171,40 @@ try{
   }
   if($world.operational_awareness.source_of_truth -ne 'brainstem_local_state'){throw 'BRAINSTEM cognition world not connected'}
   if($w.summary.registered_emit_agent_records -ne $i.summary.registered_agent_records){throw 'Agent registration distinction failed'}
-  Write-Host 'Live sync passed. Testing worker loss; waiting 65 seconds for observation TTL.'
+  # Exercise the real queue execution path, not merely liveness or mocks.
+  $contracts=Invoke-RestMethod "$bBase/orchestration/contracts" -Headers $bhdr -NoProxy -TimeoutSec 20
+  if(@($contracts | Where-Object {$_.contract_id -eq 'runtime.snapshot@v1'}).Count -ne 1){throw 'Required immutable execution contract not registered'}
+  $dispatchBody=@{
+    idempotency_key='e2e-snapshot-'+[guid]::NewGuid().ToString('N')
+    contract_id='runtime.snapshot@v1'
+    payload=@{}
+    lease_seconds=60
+  } | ConvertTo-Json -Depth 8 -Compress
+  $first=Invoke-RestMethod "$bBase/orchestration/dispatch" -Method Post -Headers $bhdr -NoProxy -TimeoutSec 45 -ContentType 'application/json' -Body $dispatchBody
+  if($first.status -ne 'verified_complete' -or -not $first.verified_receipt.signature){
+    throw "No verified execution receipt: $($first | ConvertTo-Json -Depth 12)"
+  }
+  $replayed=Invoke-RestMethod "$bBase/orchestration/dispatch" -Method Post -Headers $bhdr -NoProxy -TimeoutSec 30 -ContentType 'application/json' -Body $dispatchBody
+  if($replayed.task_id -ne $first.task_id -or $replayed.verified_receipt.signature -ne $first.verified_receipt.signature){
+    throw 'Idempotent task replay did not return the same verified receipt'
+  }
+  $status=Invoke-RestMethod "$bBase/orchestration/tasks/$($first.task_id)" -Headers $bhdr -NoProxy -TimeoutSec 20
+  if($status.status -ne 'verified_complete'){throw 'Verified task not persisted in BRAINSTEM'}
+  $summary=Invoke-RestMethod "$bBase/orchestration/cognitive-summary" -Headers $bhdr -NoProxy -TimeoutSec 20
+  $worldAfter=Invoke-RestMethod "$bBase/world" -NoProxy -TimeoutSec 20
+  if(@($summary.verified_outcomes | Where-Object {$_.task_id -eq $first.task_id}).Count -ne 1 -or
+     @($worldAfter.workforce_orchestration.verified_outcomes | Where-Object {$_.task_id -eq $first.task_id}).Count -ne 1){
+    throw 'Verified execution outcome not visible in BRAINSTEM cognition'
+  }
+  Write-Host "Real contract-bound worker execution verified: $($first.task_id), worker=$($first.assigned_worker_id)"
+  Write-Host 'Live sync and signed execution passed. Testing worker loss; waiting 65 seconds for observation TTL.'
   Stop-Process -Id $ep.Id -Force; $null=$ep.WaitForExit(10000)
   Start-Sleep -Seconds 65
   $stale=Invoke-RestMethod "$bBase/awareness/workers" -NoProxy -TimeoutSec 20
   if($stale.summary.online_workers -ne 0){throw 'Stale workers incorrectly online'}
   $stillFresh=@($stale.workers | Where-Object {$_.source -eq 'kindred_emit_core' -and $_.status -ne 'stale'})
   if($stillFresh.Count -gt 0){throw 'Worker loss was not marked stale'}
-  [pscustomobject]@{result='PASS';observed_lane_workers=$i.summary.online_lane_workers;registered_agent_records=$i.summary.registered_agent_records;online_after_loss=$stale.summary.online_workers;persisted_records=$stale.summary.observed_worker_records;logs=$root} | Format-List
+  [pscustomobject]@{result='PASS';observed_lane_workers=$i.summary.online_lane_workers;registered_agent_records=$i.summary.registered_agent_records;online_after_loss=$stale.summary.online_workers;persisted_records=$stale.summary.observed_worker_records;verified_execution_task=$first.task_id;logs=$root} | Format-List
 }finally{
   foreach($p in @($ep,$bp)){if($null -ne $p){try{if(-not $p.HasExited){Stop-Process -Id $p.Id -Force -ErrorAction SilentlyContinue}}catch{};$p.Dispose()}}
   foreach($k in $envKeys){[Environment]::SetEnvironmentVariable($k,$original[$k],'Process')}
