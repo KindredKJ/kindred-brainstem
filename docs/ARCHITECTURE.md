@@ -49,3 +49,40 @@ git revert <this-commit>
 ```
 
 Back up `~/.kindred/brainstem.db`, its `-wal`/`-shm` companions when present, and `~/.kindred/events.jsonl` while the runtime is stopped. Restore those files to the same location before restarting.
+
+## Native organizational awareness — first executable slice
+
+BRAINSTEM owns the durable workforce observation table in its canonical SQLite
+database. Organizational awareness is part of the native `BrainstemModel`,
+appears in `GET /world`, and its summary is included in the cognitive cycle's
+recorded context. EMIT is a replaceable source of observations, not a second
+cognitive orchestrator.
+
+Native endpoints:
+- `GET /awareness` and `GET /awareness/workers`: persisted observations
+  with heartbeat freshness, source errors and counts.
+- `POST /awareness/workers/observe`: authenticates with
+  `BRAINSTEM_AWARENESS_KEY` in `X-Brainstem-Awareness-Key`; accepts a local
+  or other authorized worker observation without EMIT.
+- `POST /awareness/sync`: authenticated immediate pull from EMIT.
+- Automatic 15-second polling while the BRAINSTEM runtime serves, **only**
+  when `KINDRED_EMIT_CORE_URL` and `KINDRED_INTERNAL_SERVICE_KEY`
+  are configured. The EMIT URL must be HTTPS, or loopback HTTP for local
+  development.
+
+For local integration, point `KINDRED_EMIT_CORE_URL` at the EMIT server's base
+URL (typically `http://127.0.0.1:8000`), set
+`KINDRED_INTERNAL_SERVICE_KEY` to the same secret configured in EMIT,
+and set an independent `BRAINSTEM_AWARENESS_KEY` for native submissions.
+Then start both services and inspect `GET /awareness/workers`.
+
+The inventory contract is `kindred.workforce.inventory.v1`.
+EMIT's registered agents and configured lanes are **not** counted as active
+workers. An observation can become stale after 60 seconds; a reported heartbeat
+is not independent verification of external task completion. On failure, prior
+observations remain available with their freshness and the sync error.
+
+This slice gives the native model persistent operational *observations*, not
+sentience, autonomous organizational decision-making, or independently proven
+worker results. Next steps are individual worker adapters, verified outcomes,
+root-signed evidence and cognition-driven intervention.
