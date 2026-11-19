@@ -233,10 +233,83 @@ def test_dag_releases_only_after_verified_predecessor(tmp_path, monkeypatch):
     assert child["status"] == "blocked"
     operator = WorkforceOperatorSupervisor(store)
     assert operator.reconcile_once()["released"] == 0
+    # A forged status without a matching receipt must not release dependencies.
     with store.connect() as db:
         db.execute(
             "UPDATE workforce_tasks SET status='verified_complete' WHERE task_id=?",
             (parent["task_id"],),
         )
+    assert operator.reconcile_once()["released"] == 0
+    with store.connect() as db:
+        db.execute(
+            """UPDATE workforce_tasks SET status='leased',assigned_source=?,
+               assigned_worker_id=?,lease_expires_at=? WHERE task_id=?""",
+            ("kindred_emit_core", "worker-foundation.signal-aabbcc",
+             (datetime.now(timezone.utc) + timedelta(seconds=60)).isoformat(),
+             parent["task_id"]),
+        )
+    aware.ingest_emit(_emit_inventory())
+    receipt = _signed_receipt(engine.task(parent["task_id"]), monkeypatch)
+    assert engine._commit_receipt(parent["task_id"], receipt)["status"] == "verified_complete"
     assert operator.reconcile_once()["released"] == 1
     assert engine.task(child["task_id"])["status"] == "queued"
+
+
+def test_contract_retirement_preserves_old_receipt_validator(tmp_path):
+    store, aware, engine = _runtime(tmp_path)
+    contract_id = "signal.deliver@v1"
+    original = engine.contracts.contract(contract_id)
+    retired = engine.contracts.deactivate_contract(contract_id)
+    assert retired["active"] == 0
+    with pytest.raises(ContractViolationError, match="active contract not found"):
+        engine.contracts.validate_input(contract_id, {"signal": "no new dispatch"})
+    # The immutable original schema must still validate old, signed receipts.
+    engine.contracts.validate_output(contract_id, {
+        "lane": "task.signal", "signal_sha256": "0" * 64, "processed_count_after": 1,
+    })
+    assert engine.contracts.contract(contract_id, require_active=False)["created_at"] == original["created_at"]
+    recovered = AgenticContractRegistry(store)
+    assert recovered.contract(contract_id, require_active=False)["active"] == 0
+
+
+def test_cached_schema_validator_is_reused(tmp_path):
+    _, _, engine = _runtime(tmp_path)
+    engine.contracts.validate_input("signal.deliver@v1", {"signal": "hello"})
+    engine.contracts.validate_input("signal.deliver@v1", {"signal": "world"})
+    info = engine.contracts._validator.cache_info()
+    assert info.hits >= 1
+
+
+def test_wal_busy_timeout_configuration(tmp_path):
+    store, _, _ = _runtime(tmp_path)
+    with store.connect() as db:
+        assert db.execute("PRAGMA journal_mode").fetchone()[0].lower() == "wal"
+        assert db.execute("PRAGMA synchronous").fetchone()[0] == 1
+        assert db.execute("PRAGMA busy_timeout").fetchone()[0] >= 10000
+        assert db.execute("PRAGMA foreign_keys").fetchone()[0] == 1
+
+
+def test_api_contract_registration_and_access_control(tmp_path, monkeypatch):
+    from brainstem.runtime.app import build_app
+    from fastapi.testclient import TestClient
+    monkeypatch.setenv("BRAINSTEM_AWARENESS_KEY", "orchestration-local-test-key")
+    app = build_app(database=tmp_path / "api.db")
+    with TestClient(app) as client:
+        denied = client.get("/contracts")
+        assert denied.status_code == 401
+        hdr = {"X-Brainstem-Awareness-Key": "orchestration-local-test-key"}
+        listed = client.get("/contracts", headers=hdr)
+        assert listed.status_code == 200
+        assert any(c["contract_id"] == "runtime.snapshot@v1" for c in listed.json())
+        invalid = client.post("/orchestration/dispatch", headers=hdr, json={
+            "idempotency_key": "contract-test-invalid",
+            "contract_id": "signal.deliver@v1",
+            "payload": {"signal": 78},
+        })
+        assert invalid.status_code == 422
+        duplicate = client.post("/contracts", headers=hdr, json={
+            "contract_id": "runtime.snapshot@v1", "capability": "runtime.snapshot",
+            "version": "v1", "input_schema": {"type": "object"},
+            "output_schema": {"type": "object"},
+        })
+        assert duplicate.status_code == 422
