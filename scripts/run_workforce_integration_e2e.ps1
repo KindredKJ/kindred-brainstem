@@ -85,6 +85,16 @@ try{
     foreach($expected in @((Join-Path $er '.venv\Scripts\python.exe'),(Join-Path $br '.venv\Scripts\python.exe'),(Join-Path $er 'cloud\api\main.py'),(Join-Path $br 'brainstem\runtime\app.py'))){
       if(-not (Test-Path -LiteralPath $expected -PathType Leaf)){throw "Cannot reuse incomplete workspace: $expected"}
     }
+    & git -C $er pull --ff-only
+    VerifyExit 'Update isolated EMIT branch'
+    & git -C $br pull --ff-only
+    VerifyExit 'Update isolated BRAINSTEM branch'
+    $checkedBrainPython=Join-Path $br '.venv\Scripts\python.exe'
+    Push-Location $br
+    try {
+      & $checkedBrainPython -m pytest -q tests/test_workforce_awareness.py
+      VerifyExit 'Updated BRAINSTEM workforce tests'
+    } finally { Pop-Location }
   }else{
   & git clone --depth 1 -b feature/native-workforce-inventory-20261118 https://github.com/KindredKJ/KINDRED_EMIT_CORE.git $er
   VerifyExit 'Private EMIT clone; authenticate Git first'
@@ -136,7 +146,21 @@ try{
   $s=Invoke-RestMethod "$bBase/awareness/sync" -Method Post -Headers $bhdr -NoProxy -TimeoutSec 20
   $w=Invoke-RestMethod "$bBase/awareness/workers" -NoProxy -TimeoutSec 20
   $world=Invoke-RestMethod "$bBase/world" -NoProxy -TimeoutSec 20
-  if($s.status -ne 'observations_available' -or $w.summary.online_workers -ne $i.summary.online_lane_workers){throw 'BRAINSTEM live worker counts failed'}
+  Write-Host ("EMIT online workers: {0}; EMIT reported instances: {1}; BRAINSTEM online workers: {2}; BRAINSTEM records: {3}; sync status: {4}" -f $i.summary.online_lane_workers,$i.summary.observed_lane_instances,$w.summary.online_workers,$w.summary.observed_worker_records,$s.status)
+  if ($s.status -eq 'unavailable' -or $s.status -eq 'not_configured') {
+    $syncError = if ($null -ne $s.PSObject.Properties['error']) {$s.error} else {'No sync error supplied'}
+    throw "BRAINSTEM could not read EMIT inventory: $syncError"
+  }
+  if($s.status -ne 'observations_available') {
+    throw "BRAINSTEM returned unexpected synchronization state: $($s.status)"
+  }
+  if($w.summary.online_workers -ne $i.summary.online_lane_workers){
+    $emittedWorkers=@($i.workers | Where-Object {$_.status -eq 'online'} | ForEach-Object {$_.worker_id})
+    $observedWorkers=@($w.workers | Where-Object {$_.status -eq 'online'} | ForEach-Object {$_.worker_id})
+    $missing=@($emittedWorkers | Where-Object {$_ -notin $observedWorkers})
+    $extra=@($observedWorkers | Where-Object {$_ -notin $emittedWorkers})
+    throw "Live worker mismatch: EMIT=$($i.summary.online_lane_workers), BRAINSTEM=$($w.summary.online_workers); missing=$($missing -join ','); extra=$($extra -join ',')"
+  }
   if($world.operational_awareness.source_of_truth -ne 'brainstem_local_state'){throw 'BRAINSTEM cognition world not connected'}
   if($w.summary.registered_emit_agent_records -ne $i.summary.registered_agent_records){throw 'Agent registration distinction failed'}
   Write-Host 'Live sync passed. Testing worker loss; waiting 65 seconds for observation TTL.'
