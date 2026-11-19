@@ -222,7 +222,12 @@ class OperationalAwareness:
             headers={"X-Kindred-Internal-Key": key, "Accept": "application/json"},
         )
         try:
-            with build_opener(ProxyHandler({}), _NoRedirect()).open(request, timeout=10) as response:
+            # Explicitly avoid machine-wide HTTP proxies only for the local EMIT bridge.
+            # Preserve configured transport for remote HTTPS deployments.
+            handlers = [_NoRedirect()]
+            if local:
+                handlers.insert(0, ProxyHandler({}))
+            with build_opener(*handlers).open(request, timeout=10) as response:
                 payload = response.read(MAX_RESPONSE_BYTES + 1)
                 if len(payload) > MAX_RESPONSE_BYTES:
                     raise ValueError("inventory response exceeds limit")
