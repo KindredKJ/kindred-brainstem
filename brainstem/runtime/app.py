@@ -15,6 +15,7 @@ from pydantic import BaseModel, Field
 from brainstem.runtime.paths import global_state_dir
 from brainstem.runtime.service import RuntimeService
 from brainstem.runtime.store import StateStore
+from brainstem.runtime.operators import WorkforceOperatorSupervisor, ContractViolationError
 
 
 class SessionRequest(BaseModel):
@@ -45,6 +46,30 @@ class DCMLCycleRequest(BaseModel):
     message: str
 
 
+class WorkforceDispatchRequest(BaseModel):
+    idempotency_key: str = Field(min_length=8, max_length=128)
+    contract_id: str = Field(min_length=6, max_length=72)
+    payload: dict[str, Any] = Field(default_factory=dict)
+    lease_seconds: int = Field(default=60, ge=5, le=3600)
+    depends_on: list[str] = Field(default_factory=list, max_length=16)
+
+
+class WorkforceContractRequest(BaseModel):
+    contract_id: str
+    capability: str
+    version: str
+    input_schema: dict[str, Any]
+    output_schema: dict[str, Any]
+    max_lease_seconds: int = Field(default=60, ge=5, le=3600)
+    max_retries: int = Field(default=2, ge=0, le=8)
+    require_live_signal_lane: bool = True
+    verification_tier: str = "signal_lane"
+
+
+class WorkforceLeaseRenewalRequest(BaseModel):
+    seconds: int = Field(default=15, ge=5, le=60)
+
+
 class WorkforceObservationRequest(BaseModel):
     source: str
     worker_id: str
@@ -61,6 +86,8 @@ def build_app(
     )
     runtime = service or RuntimeService(StateStore(db))
     awareness = runtime.awareness
+    orchestrator = runtime.orchestrator
+    supervisor = WorkforceOperatorSupervisor(runtime.store, orchestrator)
 
     async def _continuous_awareness() -> None:
         while True:
@@ -70,11 +97,18 @@ def build_app(
     @asynccontextmanager
     async def lifespan(_app: FastAPI):
         task = None
+        operator_task = asyncio.create_task(supervisor.run_forever())
         if os.getenv("KINDRED_EMIT_CORE_URL") and os.getenv("KINDRED_INTERNAL_SERVICE_KEY"):
             task = asyncio.create_task(_continuous_awareness())
         try:
             yield
         finally:
+            supervisor.stop()
+            operator_task.cancel()
+            try:
+                await operator_task
+            except asyncio.CancelledError:
+                pass
             if task is not None:
                 task.cancel()
                 try:
@@ -89,6 +123,8 @@ def build_app(
     )
     app.state.runtime = runtime
     app.state.operational_awareness = awareness
+    app.state.workforce_orchestrator = orchestrator
+    app.state.workforce_supervisor = supervisor
 
     def _require_awareness_key(
         x_brainstem_awareness_key: str | None = Header(default=None),
@@ -125,6 +161,83 @@ def build_app(
             )
         except ValueError as exc:
             raise HTTPException(422, str(exc)) from exc
+
+    @app.get("/orchestration/contracts")
+    def workforce_contracts(
+        x_brainstem_awareness_key: str | None = Header(default=None),
+    ) -> list[dict[str, Any]]:
+        _require_awareness_key(x_brainstem_awareness_key)
+        return orchestrator.contracts.list_contracts()
+
+    @app.post("/orchestration/contracts")
+    def register_workforce_contract(
+        request: WorkforceContractRequest,
+        x_brainstem_awareness_key: str | None = Header(default=None),
+    ) -> dict[str, Any]:
+        _require_awareness_key(x_brainstem_awareness_key)
+        if request.capability not in {"runtime.snapshot", "signal.deliver"}:
+            raise HTTPException(422, "EMIT does not implement this execution capability")
+        try:
+            return orchestrator.contracts.register_contract(**request.model_dump())
+        except ContractViolationError as exc:
+            raise HTTPException(422, str(exc)) from exc
+
+    @app.post("/orchestration/dispatch")
+    def workforce_dispatch(
+        request: WorkforceDispatchRequest,
+        x_brainstem_awareness_key: str | None = Header(default=None),
+    ) -> dict[str, Any]:
+        _require_awareness_key(x_brainstem_awareness_key)
+        from brainstem.runtime.workforce_orchestration import OrchestrationError
+        try:
+            return orchestrator.dispatch(**request.model_dump())
+        except OrchestrationError as exc:
+            raise HTTPException(exc.status_code, exc.detail) from exc
+
+    @app.get("/orchestration/tasks/{task_id}")
+    def workforce_task(
+        task_id: str,
+        x_brainstem_awareness_key: str | None = Header(default=None),
+    ) -> dict[str, Any]:
+        _require_awareness_key(x_brainstem_awareness_key)
+        from brainstem.runtime.workforce_orchestration import OrchestrationError
+        try:
+            return orchestrator.task(task_id)
+        except OrchestrationError as exc:
+            raise HTTPException(exc.status_code, exc.detail) from exc
+
+    @app.post("/orchestration/tasks/{task_id}/renew")
+    def renew_workforce_task(
+        task_id: str,
+        request: WorkforceLeaseRenewalRequest,
+        x_brainstem_awareness_key: str | None = Header(default=None),
+    ) -> dict[str, Any]:
+        _require_awareness_key(x_brainstem_awareness_key)
+        from brainstem.runtime.workforce_orchestration import OrchestrationError
+        try:
+            return orchestrator.renew_lease(task_id, request.seconds)
+        except OrchestrationError as exc:
+            raise HTTPException(exc.status_code, exc.detail) from exc
+
+    @app.get("/orchestration/cognitive-summary")
+    def workforce_cognitive_summary(
+        limit: int = 10,
+        x_brainstem_awareness_key: str | None = Header(default=None),
+    ) -> dict[str, Any]:
+        _require_awareness_key(x_brainstem_awareness_key)
+        return orchestrator.summary(limit)
+
+    @app.get("/orchestration/operator-events")
+    def workforce_operator_events(
+        limit: int = 50,
+        x_brainstem_awareness_key: str | None = Header(default=None),
+    ) -> list[dict[str, Any]]:
+        _require_awareness_key(x_brainstem_awareness_key)
+        with runtime.store.connect() as dbh:
+            return [dict(row) for row in dbh.execute(
+                "SELECT * FROM operator_audit_log ORDER BY created_at DESC LIMIT ?",
+                (max(1, min(limit, 200)),),
+            )]
 
     @app.get("/dcml/status")
     def dcml_status() -> dict[str, Any]:
