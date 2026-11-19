@@ -173,10 +173,10 @@ try{
   if($w.summary.registered_emit_agent_records -ne $i.summary.registered_agent_records){throw 'Agent registration distinction failed'}
   # Exercise the real queue execution path, not merely liveness or mocks.
   $contracts=Invoke-RestMethod "$bBase/orchestration/contracts" -Headers $bhdr -NoProxy -TimeoutSec 20
-  if(@($contracts | Where-Object {$_.contract_id -eq 'runtime.snapshot@v1'}).Count -ne 1){throw 'Required immutable execution contract not registered'}
+  if(@($contracts | Where-Object {$_.contract_id -eq 'runtime.snapshot@v2' -and $_.verification_tier -eq 'signal_lane_causal'}).Count -ne 1){throw 'Required PoECL execution contract not registered'}
   $dispatchBody=@{
     idempotency_key='e2e-snapshot-'+[guid]::NewGuid().ToString('N')
-    contract_id='runtime.snapshot@v1'
+    contract_id='runtime.snapshot@v2'
     payload=@{}
     lease_seconds=60
   } | ConvertTo-Json -Depth 8 -Compress
@@ -184,6 +184,15 @@ try{
   if($first.status -ne 'verified_complete' -or -not $first.verified_receipt.signature){
     throw "No verified execution receipt: $($first | ConvertTo-Json -Depth 12)"
   }
+  if($first.verified_receipt.causal_proof.schema_version -ne 'kindred.poecl.process_trace.v1' -or
+     -not $first.verified_receipt.causal_proof.chain_hash){
+    throw 'PoECL causal receipt missing or malformed'
+  }
+  $ledger=Invoke-RestMethod "$eBase/runtime/workers/causal/verify" -Headers $ehdr -NoProxy -TimeoutSec 30
+  if(-not $ledger.valid -or $ledger.rows_checked -lt 1){
+    throw "EMIT causal ledger verification failed: $($ledger | ConvertTo-Json -Depth 8)"
+  }
+  Write-Host "EMIT PoECL chain verified: $($ledger.rows_checked) receipt(s); head=$($ledger.head)"
   $replayed=Invoke-RestMethod "$bBase/orchestration/dispatch" -Method Post -Headers $bhdr -NoProxy -TimeoutSec 30 -ContentType 'application/json' -Body $dispatchBody
   if($replayed.task_id -ne $first.task_id -or $replayed.verified_receipt.signature -ne $first.verified_receipt.signature){
     throw 'Idempotent task replay did not return the same verified receipt'
@@ -196,6 +205,10 @@ try{
      @($worldAfter.workforce_orchestration.verified_outcomes | Where-Object {$_.task_id -eq $first.task_id}).Count -ne 1){
     throw 'Verified execution outcome not visible in BRAINSTEM cognition'
   }
+  $kacfOutcome=@($worldAfter.workforce_orchestration.verified_outcomes | Where-Object {$_.task_id -eq $first.task_id})[0]
+  if($kacfOutcome.causal_chain_hash -ne $first.verified_receipt.causal_proof.chain_hash){
+    throw 'BRAINSTEM cognitive world does not preserve verified PoECL chain digest'
+  }
   Write-Host "Real contract-bound worker execution verified: $($first.task_id), worker=$($first.assigned_worker_id)"
   Write-Host 'Live sync and signed execution passed. Testing worker loss; waiting 65 seconds for observation TTL.'
   Stop-Process -Id $ep.Id -Force; $null=$ep.WaitForExit(10000)
@@ -204,7 +217,7 @@ try{
   if($stale.summary.online_workers -ne 0){throw 'Stale workers incorrectly online'}
   $stillFresh=@($stale.workers | Where-Object {$_.source -eq 'kindred_emit_core' -and $_.status -ne 'stale'})
   if($stillFresh.Count -gt 0){throw 'Worker loss was not marked stale'}
-  [pscustomobject]@{result='PASS';observed_lane_workers=$i.summary.online_lane_workers;registered_agent_records=$i.summary.registered_agent_records;online_after_loss=$stale.summary.online_workers;persisted_records=$stale.summary.observed_worker_records;verified_execution_task=$first.task_id;logs=$root} | Format-List
+  [pscustomobject]@{result='PASS';observed_lane_workers=$i.summary.online_lane_workers;registered_agent_records=$i.summary.registered_agent_records;online_after_loss=$stale.summary.online_workers;persisted_records=$stale.summary.observed_worker_records;verified_execution_task=$first.task_id;poecl_chain_head=$ledger.head;logs=$root} | Format-List
 }finally{
   foreach($p in @($ep,$bp)){if($null -ne $p){try{if(-not $p.HasExited){Stop-Process -Id $p.Id -Force -ErrorAction SilentlyContinue}}catch{};$p.Dispose()}}
   foreach($k in $envKeys){[Environment]::SetEnvironmentVariable($k,$original[$k],'Process')}
