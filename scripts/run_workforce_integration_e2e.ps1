@@ -8,6 +8,7 @@ $envKeys=@('KINDRED_INTERNAL_SERVICE_KEY','BRAINSTEM_AWARENESS_KEY','KINDRED_EMI
 foreach($k in $envKeys){$original[$k]=[Environment]::GetEnvironmentVariable($k,'Process')}
 $root=if($ReuseWorkspace){ (Resolve-Path -LiteralPath $ReuseWorkspace -ErrorAction Stop).Path }else{ Join-Path ([IO.Path]::GetTempPath()) ('Kindred-Workforce-E2E-'+[guid]::NewGuid().ToString('N')) }
 $er=Join-Path $root 'EMIT'; $br=Join-Path $root 'BRAINSTEM'
+$run=Join-Path (Join-Path $root 'runs') ([guid]::NewGuid().ToString('N'))
 $ep=$null; $bp=$null
 function VerifyExit([string]$name){if($LASTEXITCODE -ne 0){throw "$name exit code $LASTEXITCODE"}}
 function Resolve-CompatiblePython([string]$preferred) {
@@ -73,8 +74,9 @@ try{
   if($EmitPort -eq $BrainPort){throw 'Port numbers must differ'}
   CheckFree $EmitPort; CheckFree $BrainPort
   New-Item -ItemType Directory -Path $root -Force | Out-Null
-  $env:KINDRED_SQLITE_PATH=Join-Path $root 'emit.db'
-  $env:KINDRED_STATE_DB=Join-Path $root 'brainstem.db'
+  New-Item -ItemType Directory -Path $run -Force | Out-Null
+  $env:KINDRED_SQLITE_PATH=Join-Path $run 'emit-tests.db'
+  $env:KINDRED_STATE_DB=Join-Path $run 'brainstem-tests.db'
   $env:KINDRED_CLOUD_USE_LOCAL_STORE='1'
   & git --version | Out-Null; VerifyExit 'git'
   $Python=Resolve-CompatiblePython $Python
@@ -132,14 +134,14 @@ try{
   [Security.Cryptography.RandomNumberGenerator]::Fill($bytes)
   $env:BRAINSTEM_AWARENESS_KEY=[Convert]::ToHexString($bytes)
   $env:KINDRED_EMIT_CORE_URL="http://127.0.0.1:$EmitPort"
-  $env:KINDRED_SQLITE_PATH=Join-Path $root 'emit.db'
-  $env:KINDRED_STATE_DB=Join-Path $root 'brainstem.db'
+  $env:KINDRED_SQLITE_PATH=Join-Path $run 'emit-live.db'
+  $env:KINDRED_STATE_DB=Join-Path $run 'brainstem-live.db'
   $env:KINDRED_CLOUD_USE_LOCAL_STORE='1'
-  $eErr=Join-Path $root 'emit.err.log'; $bErr=Join-Path $root 'brainstem.err.log'
-  $ep=Start-Process -FilePath $ePython -WorkingDirectory $er -ArgumentList @('-m','uvicorn','cloud.api.main:app','--host','127.0.0.1','--port',"$EmitPort") -PassThru -RedirectStandardOutput (Join-Path $root 'emit.out.log') -RedirectStandardError $eErr
+  $eErr=Join-Path $run 'emit.err.log'; $bErr=Join-Path $run 'brainstem.err.log'
+  $ep=Start-Process -FilePath $ePython -WorkingDirectory $er -ArgumentList @('-m','uvicorn','cloud.api.main:app','--host','127.0.0.1','--port',"$EmitPort") -PassThru -RedirectStandardOutput (Join-Path $run 'emit.out.log') -RedirectStandardError $eErr
   $eh=WaitUrl "http://127.0.0.1:$EmitPort/health" $ep $eErr
   if(-not $eh.foundation.foundation_ready){throw "EMIT foundation not ready: $($eh|ConvertTo-Json -Depth 8)"}
-  $bp=Start-Process -FilePath $bPython -WorkingDirectory $br -ArgumentList @('-m','uvicorn','brainstem.runtime.app:app','--host','127.0.0.1','--port',"$BrainPort") -PassThru -RedirectStandardOutput (Join-Path $root 'brainstem.out.log') -RedirectStandardError $bErr
+  $bp=Start-Process -FilePath $bPython -WorkingDirectory $br -ArgumentList @('-m','uvicorn','brainstem.runtime.app:app','--host','127.0.0.1','--port',"$BrainPort") -PassThru -RedirectStandardOutput (Join-Path $run 'brainstem.out.log') -RedirectStandardError $bErr
   $null=WaitUrl "http://127.0.0.1:$BrainPort/health" $bp $bErr
   $eBase="http://127.0.0.1:$EmitPort";$bBase="http://127.0.0.1:$BrainPort"
   $unauthorized = Invoke-WebRequest -Uri "$eBase/runtime/workers/inventory" -NoProxy -TimeoutSec 15 -SkipHttpErrorCheck -ErrorAction Stop
@@ -217,9 +219,10 @@ try{
   if($stale.summary.online_workers -ne 0){throw 'Stale workers incorrectly online'}
   $stillFresh=@($stale.workers | Where-Object {$_.source -eq 'kindred_emit_core' -and $_.status -ne 'stale'})
   if($stillFresh.Count -gt 0){throw 'Worker loss was not marked stale'}
-  [pscustomobject]@{result='PASS';observed_lane_workers=$i.summary.online_lane_workers;registered_agent_records=$i.summary.registered_agent_records;online_after_loss=$stale.summary.online_workers;persisted_records=$stale.summary.observed_worker_records;verified_execution_task=$first.task_id;poecl_chain_head=$ledger.head;logs=$root} | Format-List
+  [pscustomobject]@{result='PASS';observed_lane_workers=$i.summary.online_lane_workers;registered_agent_records=$i.summary.registered_agent_records;online_after_loss=$stale.summary.online_workers;persisted_records=$stale.summary.observed_worker_records;verified_execution_task=$first.task_id;poecl_chain_head=$ledger.head;logs=$run} | Format-List
 }finally{
   foreach($p in @($ep,$bp)){if($null -ne $p){try{if(-not $p.HasExited){Stop-Process -Id $p.Id -Force -ErrorAction SilentlyContinue}}catch{};$p.Dispose()}}
   foreach($k in $envKeys){[Environment]::SetEnvironmentVariable($k,$original[$k],'Process')}
-  Write-Host "Workspace and diagnostic logs retained at: $root"
+  Write-Host "Reusable source workspace: $root"
+  Write-Host "Isolated run databases and diagnostic logs: $run"
 }
