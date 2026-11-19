@@ -102,3 +102,7 @@ def test_authenticated_direct_observations(tmp_path, monkeypatch):
         r.endpoint for r in app.routes if getattr(r, "path", None) == "/awareness/workers"
     )
     assert summary_route()["summary"]["online_workers"] == 1
+    world_route = next(
+        r.endpoint for r in app.routes if getattr(r, "path", None) == "/world"
+    )
+    assert world_route()["operational_awareness"]["summary"]["online_workers"] == 1
