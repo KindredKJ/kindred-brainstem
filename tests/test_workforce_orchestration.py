@@ -350,3 +350,88 @@ def test_deactivated_contract_can_no_longer_dispatch(tmp_path):
             contract_id="runtime.snapshot@v1", payload={},
         )
     assert exc.value.status_code == 422
+
+
+def _poecl_receipt(task, monkeypatch, *, corrupt_proof=False):
+    from brainstem.runtime.causal_verification import DOMAIN, _canonical, _merkle_root
+    receipt = _signed_receipt(task, monkeypatch)
+    receipt.pop("signature")
+    events = [
+        {"event": "queue.dequeued", "worker_id": receipt["worker_id"]},
+        {"event": "operator.completed", "capability_uri": receipt["action"]},
+        {"event": "audit.persisted", "task_id": receipt["task_id"]},
+    ]
+    proof = {
+        "schema_version": "kindred.poecl.process_trace.v1",
+        "sequence": 1,
+        "prev_chain_hash": "0" * 64,
+        "task_id": receipt["task_id"],
+        "worker_id": receipt["worker_id"],
+        "capability_uri": receipt["action"],
+        "outcome": receipt["status"],
+        "input_sha256": receipt["payload_sha256"],
+        "output_sha256": hashlib.sha256(_canonical(receipt["output"])).hexdigest(),
+        "trace_events": events,
+        "trace_merkle_root": _merkle_root(events),
+        "elapsed_ns": 45000,
+        "energy_joules_est": None,
+        "energy_source": "unmeasured",
+        "attestation_level": "emit_local_process_instrumentation",
+    }
+    proof["chain_hash"] = hashlib.sha256(DOMAIN + _canonical(proof)).hexdigest()
+    if corrupt_proof:
+        proof["trace_merkle_root"] = "a" * 64
+    receipt["causal_proof"] = proof
+    receipt["signature"] = hmac.new(
+        b"integration-secret", _canonical(receipt), hashlib.sha256
+    ).hexdigest()
+    return receipt
+
+
+def test_v2_causal_contract_accepts_bound_attested_receipt(tmp_path, monkeypatch):
+    _, aware, engine = _runtime(tmp_path)
+    aware.ingest_emit(_emit_inventory())
+    monkeypatch.setattr(engine, "_request_emit", lambda path, payload=None, **_: (
+        None if payload is None else _poecl_receipt(
+            engine.task(payload["task_id"]), monkeypatch
+        )
+    ))
+    task = engine.dispatch(
+        idempotency_key="poecl-v2-happy-001",
+        contract_id="runtime.snapshot@v2", payload={},
+    )
+    assert task["status"] == "verified_complete"
+    assert task["verified_receipt"]["causal_proof"]["sequence"] == 1
+    assert engine.summary()["verified_outcomes"][0]["causal_chain_hash"] == (
+        task["verified_receipt"]["causal_proof"]["chain_hash"]
+    )
+
+
+def test_v2_causal_contract_rejects_missing_and_invalid_proofs(tmp_path, monkeypatch):
+    _, aware, engine = _runtime(tmp_path)
+    aware.ingest_emit(_emit_inventory())
+    monkeypatch.setattr(engine, "_request_emit", lambda path, payload=None, **_: (
+        None if payload is None else _signed_receipt(
+            engine.task(payload["task_id"]), monkeypatch
+        )
+    ))
+    with pytest.raises(OrchestrationError, match="causal receipt"):
+        engine.dispatch(
+            idempotency_key="poecl-no-proof-001",
+            contract_id="runtime.snapshot@v2", payload={},
+        )
+    assert engine.summary()["verified_outcomes"] == []
+
+    def forged(path, payload=None, **kwargs):
+        if payload is None:
+            return None
+        return _poecl_receipt(
+            engine.task(payload["task_id"]), monkeypatch, corrupt_proof=True
+        )
+    monkeypatch.setattr(engine, "_request_emit", forged)
+    with pytest.raises(OrchestrationError, match="causal receipt"):
+        engine.dispatch(
+            idempotency_key="poecl-bad-root-002",
+            contract_id="runtime.snapshot@v2", payload={},
+        )
+    assert engine.summary()["verified_outcomes"] == []
