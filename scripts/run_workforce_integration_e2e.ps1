@@ -37,12 +37,32 @@ function Resolve-CompatiblePython([string]$preferred) {
   throw 'Python 3.12+ not found. Install alongside existing Python: winget install --id Python.Python.3.12 --exact --source winget --accept-package-agreements --accept-source-agreements; then retry. Run py -0p to inspect installed interpreters.'
 }
 function WaitUrl([string]$url,[Diagnostics.Process]$proc,[string]$err){
-  $limit=(Get-Date).AddSeconds(90)
+  $limit=(Get-Date).AddSeconds(180)
+  $lastError=''
+  $attempts=0
   while((Get-Date) -lt $limit){
-    if($proc.HasExited){throw "Service exited: $((Get-Content $err -Tail 30) -join [Environment]::NewLine)"}
-    try{return Invoke-RestMethod -Uri $url -TimeoutSec 2}catch{Start-Sleep -Milliseconds 750}
+    if($proc.HasExited){
+      $log=if(Test-Path -LiteralPath $err){(Get-Content -LiteralPath $err -Tail 40) -join [Environment]::NewLine}else{'No server log'}
+      throw "Service exited while probing $url. Log: $log"
+    }
+    try{
+      $attempts++
+      $reply=Invoke-WebRequest -Uri $url -NoProxy -TimeoutSec 15 -SkipHttpErrorCheck -ErrorAction Stop
+      if([int]$reply.StatusCode -ne 200){
+        $lastError="HTTP $([int]$reply.StatusCode)"
+      }else{
+        $health=ConvertFrom-Json -InputObject ([string]$reply.Content) -ErrorAction Stop
+        Write-Host "HTTP 200 and valid JSON from $url (attempt $attempts)"
+        return $health
+      }
+    }catch{
+      $lastError=$_.Exception.Message
+      if($attempts -eq 1 -or $attempts % 5 -eq 0){Write-Warning "Readiness probe $url attempt $attempts : $lastError"}
+    }
+    Start-Sleep -Milliseconds 750
   }
-  throw "Service startup timeout: $url. Log: $err"
+  $log=if(Test-Path -LiteralPath $err){(Get-Content -LiteralPath $err -Tail 60) -join [Environment]::NewLine}else{'No server log'}
+  throw "Service readiness timed out for $url after $attempts attempts. Last client error: $lastError. Server log: $log"
 }
 function CheckFree([int]$port){
   if($port -lt 1024 -or $port -gt 65535){throw 'Ports must be between 1024 and 65535'}
