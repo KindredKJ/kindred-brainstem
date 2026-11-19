@@ -12,7 +12,7 @@ import re
 from datetime import datetime, timezone
 from typing import Any
 from urllib.parse import urlsplit
-from urllib.request import HTTPRedirectHandler, Request, build_opener
+from urllib.request import HTTPRedirectHandler, ProxyHandler, Request, build_opener
 
 from brainstem.runtime.store import StateStore
 
@@ -222,7 +222,7 @@ class OperationalAwareness:
             headers={"X-Kindred-Internal-Key": key, "Accept": "application/json"},
         )
         try:
-            with build_opener(_NoRedirect).open(request, timeout=4) as response:
+            with build_opener(ProxyHandler({}), _NoRedirect()).open(request, timeout=10) as response:
                 payload = response.read(MAX_RESPONSE_BYTES + 1)
                 if len(payload) > MAX_RESPONSE_BYTES:
                     raise ValueError("inventory response exceeds limit")
