@@ -31,7 +31,8 @@ def _age_seconds(value: str, now: datetime) -> float:
         parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
         if parsed.tzinfo is None:
             return float("inf")
-        return max(0.0, (now - parsed).total_seconds())
+        delta = (now - parsed).total_seconds()
+        return max(0.0, delta) if delta >= -30.0 else float("inf")
     except (ValueError, TypeError, AttributeError):
         return float("inf")
 
