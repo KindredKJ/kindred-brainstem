@@ -29,6 +29,7 @@ class RuntimeService:
         }
         self.model = BrainstemModel(store, self.adapters)
         self.awareness = self.model.awareness
+        self.orchestrator = self.model.orchestrator
         self.strata = PortZeroGateway(store, self.model.dcml.authority)
 
     def health(self) -> dict[str, Any]:
