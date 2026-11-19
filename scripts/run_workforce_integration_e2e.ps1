@@ -10,6 +10,32 @@ $root=Join-Path ([IO.Path]::GetTempPath()) ('Kindred-Workforce-E2E-'+[guid]::New
 $er=Join-Path $root 'EMIT'; $br=Join-Path $root 'BRAINSTEM'
 $ep=$null; $bp=$null
 function VerifyExit([string]$name){if($LASTEXITCODE -ne 0){throw "$name exit code $LASTEXITCODE"}}
+function Resolve-CompatiblePython([string]$preferred) {
+  $probe = 'import sys; print(sys.executable if sys.version_info >= (3,12) else "")'
+  foreach($candidate in @($preferred,'python3.13','python3.12','python3.14')) {
+    if([string]::IsNullOrWhiteSpace($candidate)) { continue }
+    if(-not (Get-Command $candidate -ErrorAction SilentlyContinue)) { continue }
+    try {
+      $found = & $candidate -c $probe 2>$null
+      $exe = [string]($found | Select-Object -Last 1)
+      if($LASTEXITCODE -eq 0 -and $exe -and (Test-Path -LiteralPath $exe.Trim() -PathType Leaf)) {
+        return $exe.Trim()
+      }
+    } catch { }
+  }
+  if(Get-Command py -ErrorAction SilentlyContinue) {
+    foreach($version in @('3.12','3.13','3.14')) {
+      try {
+        $found = & py "-$version" -c $probe 2>$null
+        $exe = [string]($found | Select-Object -Last 1)
+        if($LASTEXITCODE -eq 0 -and $exe -and (Test-Path -LiteralPath $exe.Trim() -PathType Leaf)) {
+          return $exe.Trim()
+        }
+      } catch { }
+    }
+  }
+  throw 'Python 3.12+ not found. Install alongside existing Python: winget install --id Python.Python.3.12 --exact --source winget --accept-package-agreements --accept-source-agreements; then retry. Run py -0p to inspect installed interpreters.'
+}
 function WaitUrl([string]$url,[Diagnostics.Process]$proc,[string]$err){
   $limit=(Get-Date).AddSeconds(90)
   while((Get-Date) -lt $limit){
@@ -31,7 +57,9 @@ try{
   $env:KINDRED_STATE_DB=Join-Path $root 'brainstem.db'
   $env:KINDRED_CLOUD_USE_LOCAL_STORE='1'
   & git --version | Out-Null; VerifyExit 'git'
-  & $Python -c "import sys; assert sys.version_info >= (3,12)"; VerifyExit 'Python 3.12+'
+  $Python=Resolve-CompatiblePython $Python
+  Write-Host "Using compatible interpreter: $Python"
+  & $Python -c "import sys; print('Python',sys.version.split()[0])"; VerifyExit 'Python verification'
   & git clone --depth 1 -b feature/native-workforce-inventory-20261118 https://github.com/KindredKJ/KINDRED_EMIT_CORE.git $er
   VerifyExit 'Private EMIT clone; authenticate Git first'
   & git clone --depth 1 -b feature/native-organizational-awareness-20261118 https://github.com/KindredKJ/kindred-brainstem.git $br
