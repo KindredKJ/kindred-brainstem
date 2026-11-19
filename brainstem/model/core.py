@@ -21,6 +21,7 @@ from brainstem.model.schemas import (
 )
 from brainstem.runtime.store import StateStore, now
 from brainstem.runtime.workforce_awareness import OperationalAwareness
+from brainstem.runtime.workforce_orchestration import WorkforceOrchestrator
 
 FOUNDER = "Kindred Jermaine Cox"
 _ALLOWED_TRANSITIONS = {
@@ -58,6 +59,7 @@ class BrainstemModel:
         self._ensure_state()
         self.dcml = DCMLLearning(store)
         self.awareness = OperationalAwareness(store)
+        self.orchestrator = WorkforceOrchestrator(store, self.awareness)
 
     def _ensure_state(self) -> None:
         if self.store.query(
@@ -230,6 +232,7 @@ class BrainstemModel:
                 "SELECT * FROM events WHERE kind LIKE 'world.%'"
             ),
             "operational_awareness": self.awareness.overview(),
+            "workforce_orchestration": self.orchestrator.summary(),
         }
 
     def reason(
@@ -337,6 +340,11 @@ class BrainstemModel:
             "instrument_role": "subordinate specialist",
             "strategy": strategy.name,
             "selected_context": recalled,
+            "workforce_evidence": {
+                "awareness": self.awareness.overview()["summary"],
+                "orchestration": self.orchestrator.summary(limit=5),
+                "provenance": "authenticated local execution receipts; not external agent evidence",
+            },
             "permissions": ["generate_response"],
             "tool_boundaries": "adapter-declared capabilities only",
             "expected_output": "clean assistant response",
@@ -506,7 +514,11 @@ class BrainstemModel:
         context: dict[str, Any] | None = None,
     ) -> CognitiveResult:
         cycle_id = _id("KCYCLE")
-        context = {**(context or {}), "operational_awareness": self.awareness.overview()["summary"]}
+        context = {
+            **(context or {}),
+            "operational_awareness": self.awareness.overview()["summary"],
+            "verified_workforce_outcomes": self.orchestrator.summary(limit=5)["verified_outcomes"],
+        }
         if instrument == "auto":
             instrument = self.route_instrument(text)
         experience_id = self.perceive(session_id, text, context)
