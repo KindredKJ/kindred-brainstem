@@ -24,6 +24,9 @@ class StateStore:
         self.path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
         os.chmod(self.path.parent, 0o700)
         self.audit_path = audit_path or self.path.with_name("events.jsonl")
+        # WAL is persistent on disk: initialize it once, not during each writer lock.
+        with sqlite3.connect(self.path, timeout=10.0) as connection:
+            connection.execute("PRAGMA journal_mode=WAL")
         self._initialize()
         self._migrate_dcml()
         self._migrate_dcml_learning_loop()
@@ -38,10 +41,11 @@ class StateStore:
 
     @contextmanager
     def connect(self) -> Iterator[sqlite3.Connection]:
-        connection = sqlite3.connect(self.path)
+        connection = sqlite3.connect(self.path, timeout=10.0)
         connection.row_factory = sqlite3.Row
+        connection.execute("PRAGMA busy_timeout=10000")
         connection.execute("PRAGMA foreign_keys=ON")
-        connection.execute("PRAGMA journal_mode=WAL")
+        connection.execute("PRAGMA synchronous=NORMAL")
         try:
             yield connection
             connection.commit()
