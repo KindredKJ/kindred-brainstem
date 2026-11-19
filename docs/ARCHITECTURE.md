@@ -86,3 +86,27 @@ This slice gives the native model persistent operational *observations*, not
 sentience, autonomous organizational decision-making, or independently proven
 worker results. Next steps are individual worker adapters, verified outcomes,
 root-signed evidence and cognition-driven intervention.
+
+
+## Automated real two-process integration on Windows
+
+From PowerShell 7, with Git authentication for the private EMIT repository and
+Python 3.12 or newer installed, run the repository's integration script:
+
+    pwsh -NoProfile -File .\scripts\run_workforce_integration_e2e.ps1
+
+The script clones the named feature branches into a new temporary workspace,
+installs separate virtual environments, runs targeted pytest suites, launches
+both real FastAPI servers on unused loopback ports 18001 and 18281, provisions
+ephemeral integration secrets, verifies that unauthenticated inventory calls are
+rejected, compares actual observed worker counts, and verifies native BRAINSTEM
+world awareness. It then stops only its own EMIT process, waits 65 seconds, and
+requires every formerly active EMIT worker to become stale while its records
+remain in persistent BRAINSTEM state.
+
+Existing services are not stopped or modified. Test processes are cleaned up
+even if checks fail. Logs and the isolated databases remain in the printed
+temporary directory for diagnosis. GitHub Actions is not required for execution.
+Use -EmitPort and -BrainPort if the defaults are occupied; do not point the
+script at production service ports. Successful execution is required before
+claiming end-to-end liveness or worker-loss recovery.
