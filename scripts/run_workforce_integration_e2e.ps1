@@ -27,6 +27,9 @@ try{
   if($EmitPort -eq $BrainPort){throw 'Port numbers must differ'}
   CheckFree $EmitPort; CheckFree $BrainPort
   New-Item -ItemType Directory -Path $root -Force | Out-Null
+  $env:KINDRED_SQLITE_PATH=Join-Path $root 'emit.db'
+  $env:KINDRED_STATE_DB=Join-Path $root 'brainstem.db'
+  $env:KINDRED_CLOUD_USE_LOCAL_STORE='1'
   & git --version | Out-Null; VerifyExit 'git'
   & $Python -c "import sys; assert sys.version_info >= (3,12)"; VerifyExit 'Python 3.12+'
   & git clone --depth 1 -b feature/native-workforce-inventory-20261118 https://github.com/KindredKJ/KINDRED_EMIT_CORE.git $er
