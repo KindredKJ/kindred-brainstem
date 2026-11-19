@@ -8,6 +8,7 @@ from __future__ import annotations
 import asyncio
 import json
 import re
+from functools import lru_cache
 import uuid
 from datetime import datetime, timedelta, timezone
 from typing import Any
@@ -90,7 +91,13 @@ class AgenticContractRegistry:
                 );
             """)
         for contract_id, spec in BUILTIN_CONTRACTS.items():
-            self.register_contract(contract_id=contract_id, **spec)
+            with store.connect() as db:
+                existing = db.execute(
+                    "SELECT contract_id FROM agentic_contracts WHERE contract_id=?",
+                    (contract_id,),
+                ).fetchone()
+            if existing is None:
+                self.register_contract(contract_id=contract_id, **spec)
 
     def register_contract(self, *, contract_id: str, capability: str, version: str,
                           input_schema: dict[str, Any], output_schema: dict[str, Any],
@@ -133,14 +140,25 @@ class AgenticContractRegistry:
                 )
         return self.contract(contract_id)
 
-    def contract(self, contract_id: str) -> dict[str, Any]:
+    def contract(self, contract_id: str, *, require_active: bool = True) -> dict[str, Any]:
         with self.store.connect() as db:
             row = db.execute(
-                "SELECT * FROM agentic_contracts WHERE contract_id=? AND active=1", (contract_id,)
+                "SELECT * FROM agentic_contracts WHERE contract_id=?", (contract_id,)
             ).fetchone()
-        if row is None:
+        if row is None or (require_active and not row["active"]):
             raise ContractViolationError(f"active contract not found: {contract_id}")
         return dict(row)
+
+    def deactivate_contract(self, contract_id: str) -> dict[str, Any]:
+        with self.store.connect() as db:
+            db.execute("BEGIN IMMEDIATE")
+            row = db.execute(
+                "SELECT * FROM agentic_contracts WHERE contract_id=?", (contract_id,)
+            ).fetchone()
+            if row is None:
+                raise ContractViolationError(f"contract not found: {contract_id}")
+            db.execute("UPDATE agentic_contracts SET active=0 WHERE contract_id=?", (contract_id,))
+        return self.contract(contract_id, require_active=False)
 
     def list_contracts(self) -> list[dict[str, Any]]:
         with self.store.connect() as db:
@@ -148,21 +166,26 @@ class AgenticContractRegistry:
                 "SELECT * FROM agentic_contracts ORDER BY contract_id"
             )]
 
+    @staticmethod
+    @lru_cache(maxsize=256)
+    def _validator(contract_id: str, schema_json: str) -> Draft202012Validator:
+        return Draft202012Validator(
+            json.loads(schema_json), format_checker=Draft202012Validator.FORMAT_CHECKER
+        )
+
     def validate_input(self, contract_id: str, payload: dict[str, Any]) -> dict[str, Any]:
         contract = self.contract(contract_id)
         try:
-            Draft202012Validator(json.loads(contract["input_schema_json"])).validate(payload)
+            self._validator(contract_id, contract["input_schema_json"]).validate(payload)
         except ValidationError as exc:
             raise ContractViolationError(f"input violates {contract_id}: {exc.message}") from exc
         return contract
 
     def validate_output(self, contract_id: str, output: dict[str, Any]) -> None:
-        contract = self.contract(contract_id)
+        # Historical, immutable contract remains verifiable after deprecation.
+        contract = self.contract(contract_id, require_active=False)
         try:
-            Draft202012Validator(
-                json.loads(contract["output_schema_json"]),
-                format_checker=Draft202012Validator.FORMAT_CHECKER,
-            ).validate(output)
+            self._validator(contract_id, contract["output_schema_json"]).validate(output)
         except ValidationError as exc:
             raise ContractViolationError(f"output violates {contract_id}: {exc.message}") from exc
 
@@ -225,7 +248,9 @@ class WorkforceOperatorSupervisor:
             ).fetchall():
                 deps = json.loads(row["depends_on_json"])
                 states = [db.execute(
-                    "SELECT status FROM workforce_tasks WHERE task_id=?", (task_id,)
+                    """SELECT t.status,r.receipt_id FROM workforce_tasks t
+                       LEFT JOIN task_receipts r ON r.task_id=t.task_id
+                       WHERE t.task_id=?""", (task_id,)
                 ).fetchone() for task_id in deps]
                 if any(x is None or x["status"] in ("dead_letter", "expired") for x in states):
                     db.execute(
@@ -235,7 +260,7 @@ class WorkforceOperatorSupervisor:
                     self.log(db, row["task_id"], "dag_advancer", "quarantined",
                              "prerequisite task unavailable or dead_letter")
                     quarantined += 1
-                elif all(x["status"] == "verified_complete" for x in states):
+                elif all(x["status"] == "verified_complete" and x["receipt_id"] for x in states):
                     db.execute(
                         """UPDATE workforce_tasks SET status='queued',next_eligible_at=?,
                            updated_at=? WHERE task_id=?""",
@@ -249,9 +274,13 @@ class WorkforceOperatorSupervisor:
     async def run_forever(self) -> None:
         self._stop_event = asyncio.Event()
         while not self._stop_event.is_set():
-            await asyncio.to_thread(self.reconcile_once)
-            if self.orchestrator is not None:
-                await asyncio.to_thread(self.orchestrator.retry_due)
+            try:
+                await asyncio.to_thread(self.reconcile_once)
+                if self.orchestrator is not None:
+                    await asyncio.to_thread(self.orchestrator.retry_due)
+            except Exception as exc:
+                # The supervisor must keep running and record the actual error type.
+                self.store.event("workforce.operator_failure", {"type": type(exc).__name__})
             try:
                 await asyncio.wait_for(self._stop_event.wait(), timeout=self.tick_seconds)
             except asyncio.TimeoutError:
