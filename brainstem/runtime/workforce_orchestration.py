@@ -19,6 +19,7 @@ from urllib.parse import urlsplit
 from urllib.request import ProxyHandler, Request, build_opener
 
 from brainstem.runtime.operators import AgenticContractRegistry, ContractViolationError, iso, utcnow, WorkforceOperatorSupervisor
+from brainstem.runtime.causal_verification import verify_process_attestation
 from brainstem.runtime.store import StateStore
 from brainstem.runtime.workforce_awareness import OperationalAwareness, _NoRedirect, _age_seconds, _sanitize_error_message
 
@@ -139,10 +140,15 @@ class WorkforceOrchestrator:
             )]
             receipts = [dict(row) for row in db.execute(
                 """SELECT r.task_id,r.worker_id,t.contract_id,t.required_capability,
-                          r.output_sha256,r.verified_at
+                          r.output_sha256,r.verified_at,r.receipt_json
                    FROM task_receipts r JOIN workforce_tasks t ON r.task_id=t.task_id
                    ORDER BY r.verified_at DESC LIMIT ?""", (limit,)
             )]
+            for item in receipts:
+                envelope = json.loads(item.pop("receipt_json"))
+                proof = envelope.get("causal_proof")
+                item["causal_chain_hash"] = proof.get("chain_hash") if isinstance(proof, dict) else None
+                item["causal_sequence"] = proof.get("sequence") if isinstance(proof, dict) else None
         return {
             "active_leases": tasks,
             "verified_outcomes": receipts,
@@ -216,6 +222,13 @@ class WorkforceOrchestrator:
             raise OrchestrationError(502, "EMIT receipt does not match leased task")
         if receipt.get("status") not in ("completed", "failed") or not isinstance(receipt.get("output"), dict):
             raise OrchestrationError(502, "EMIT receipt status or output is invalid")
+        # @v2 task contracts require a full attested local process trace.
+        # @v1 receipts remain historically valid but cannot smuggle malformed proofs.
+        contract = self.contracts.contract(task["contract_id"], require_active=False)
+        if (contract["verification_tier"] == "signal_lane_causal"
+            or "causal_proof" in receipt):
+            if not verify_process_attestation(receipt):
+                raise OrchestrationError(502, "PoECL causal receipt verification failed")
         age = _age_seconds(receipt.get("completed_at"), utcnow())
         if age == float("inf") or age > 180:
             raise OrchestrationError(502, "EMIT receipt timestamp is stale or invalid")
