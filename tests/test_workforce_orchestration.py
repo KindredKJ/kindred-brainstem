@@ -240,6 +240,9 @@ def test_dag_releases_only_after_verified_predecessor(tmp_path, monkeypatch):
             (parent["task_id"],),
         )
     assert operator.reconcile_once()["released"] == 0
+    # The worker must exist before a task lease can reference its composite
+    # (source, worker_id) foreign key. Ingest an authenticated snapshot first.
+    aware.ingest_emit(_emit_inventory())
     with store.connect() as db:
         db.execute(
             """UPDATE workforce_tasks SET status='leased',assigned_source=?,
@@ -248,7 +251,6 @@ def test_dag_releases_only_after_verified_predecessor(tmp_path, monkeypatch):
              (datetime.now(timezone.utc) + timedelta(seconds=60)).isoformat(),
              parent["task_id"]),
         )
-    aware.ingest_emit(_emit_inventory())
     receipt = _signed_receipt(engine.task(parent["task_id"]), monkeypatch)
     assert engine._commit_receipt(parent["task_id"], receipt)["status"] == "verified_complete"
     assert operator.reconcile_once()["released"] == 1
