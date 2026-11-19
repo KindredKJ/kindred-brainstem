@@ -106,3 +106,82 @@ def test_authenticated_direct_observations(tmp_path, monkeypatch):
         r.endpoint for r in app.routes if getattr(r, "path", None) == "/world"
     )
     assert world_route()["operational_awareness"]["summary"]["online_workers"] == 1
+
+
+def test_loopback_emit_sync_bypasses_environment_proxy(tmp_path, monkeypatch):
+    """A real local HTTP server must be reachable despite a global system proxy."""
+    import json
+    import threading
+    from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+
+    payload = json.dumps(_emit_snapshot()).encode("utf-8")
+
+    class Handler(BaseHTTPRequestHandler):
+        def do_GET(self):
+            if self.path != "/runtime/workers/inventory":
+                self.send_error(404)
+                return
+            if self.headers.get("X-Kindred-Internal-Key") != "integration-worker-secret":
+                self.send_error(401)
+                return
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Content-Length", str(len(payload)))
+            self.end_headers()
+            self.wfile.write(payload)
+
+        def log_message(self, *args):
+            pass
+
+    server = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    try:
+        monkeypatch.setenv(
+            "KINDRED_EMIT_CORE_URL", f"http://127.0.0.1:{server.server_port}"
+        )
+        monkeypatch.setenv("KINDRED_INTERNAL_SERVICE_KEY", "integration-worker-secret")
+        monkeypatch.setenv("HTTP_PROXY", "http://127.0.0.1:1")
+        monkeypatch.setenv("http_proxy", "http://127.0.0.1:1")
+        monkeypatch.setenv("NO_PROXY", "")
+        monkeypatch.setenv("no_proxy", "")
+        awareness = OperationalAwareness(_store(tmp_path))
+        result = awareness.sync_emit()
+        assert result["status"] == "observations_available", result
+        assert result["summary"]["online_workers"] == 1
+        assert result["summary"]["registered_emit_agent_records"] == 1
+        assert result["sources"][0]["last_error"] is None
+    finally:
+        server.shutdown()
+        server.server_close()
+        thread.join(timeout=5)
+
+
+def test_emit_sync_reports_authentication_error(tmp_path, monkeypatch):
+    import threading
+    from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+
+    class Handler(BaseHTTPRequestHandler):
+        def do_GET(self):
+            self.send_error(401)
+
+        def log_message(self, *args):
+            pass
+
+    server = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    try:
+        monkeypatch.setenv(
+            "KINDRED_EMIT_CORE_URL", f"http://127.0.0.1:{server.server_port}"
+        )
+        monkeypatch.setenv("KINDRED_INTERNAL_SERVICE_KEY", "wrong-secret")
+        awareness = OperationalAwareness(_store(tmp_path))
+        result = awareness.sync_emit()
+        assert result["status"] == "unavailable"
+        assert "401" in result["error"]
+        assert awareness.overview()["summary"]["online_workers"] == 0
+    finally:
+        server.shutdown()
+        server.server_close()
+        thread.join(timeout=5)
