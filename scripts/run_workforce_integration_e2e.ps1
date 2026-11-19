@@ -97,7 +97,7 @@ try{
     try {
       & $checkedBrainPython -m pip install -e '.[dev]'
       VerifyExit 'Updated BRAINSTEM orchestration dependencies'
-      & $checkedBrainPython -m pytest -q tests/test_workforce_awareness.py tests/test_workforce_orchestration.py
+      & $checkedBrainPython -m pytest -q tests/test_workforce_awareness.py tests/test_workforce_orchestration.py tests/test_causal_mesh.py
       VerifyExit 'Updated BRAINSTEM workforce and orchestration tests'
     } finally { Pop-Location }
     Push-Location $er
@@ -124,7 +124,7 @@ try{
   try{
     & $bPython -m pip install -e '.[dev]'; VerifyExit 'BRAINSTEM install'
     & $bPython -m pip check; VerifyExit 'BRAINSTEM pip check'
-    & $bPython -m pytest -q tests/test_workforce_awareness.py tests/test_workforce_orchestration.py; VerifyExit 'BRAINSTEM tests'
+    & $bPython -m pytest -q tests/test_workforce_awareness.py tests/test_workforce_orchestration.py tests/test_causal_mesh.py; VerifyExit 'BRAINSTEM tests'
   }finally{Pop-Location}
   }
   $ePython=Join-Path $er '.venv\Scripts\python.exe'
