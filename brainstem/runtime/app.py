@@ -2,16 +2,20 @@
 
 from __future__ import annotations
 
+import asyncio
+import hmac
 import os
+from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Any
 
-from fastapi import FastAPI, HTTPException
-from pydantic import BaseModel
+from fastapi import FastAPI, Header, HTTPException
+from pydantic import BaseModel, Field
 
 from brainstem.runtime.paths import global_state_dir
 from brainstem.runtime.service import RuntimeService
 from brainstem.runtime.store import StateStore
+from brainstem.runtime.workforce_awareness import OperationalAwareness
 
 
 class SessionRequest(BaseModel):
@@ -42,6 +46,14 @@ class DCMLCycleRequest(BaseModel):
     message: str
 
 
+class WorkforceObservationRequest(BaseModel):
+    source: str
+    worker_id: str
+    kind: str
+    status: str
+    details: dict[str, Any] = Field(default_factory=dict)
+
+
 def build_app(
     database: Path | None = None, service: RuntimeService | None = None
 ) -> FastAPI:
@@ -49,8 +61,71 @@ def build_app(
         os.getenv("KINDRED_STATE_DB", global_state_dir() / "brainstem.db")
     )
     runtime = service or RuntimeService(StateStore(db))
-    app = FastAPI(title="Kindred BRAINSTEM Runtime", version="0.1.0-alpha")
+    awareness = OperationalAwareness(runtime.store)
+
+    async def _continuous_awareness() -> None:
+        while True:
+            await asyncio.to_thread(awareness.sync_emit)
+            await asyncio.sleep(15)
+
+    @asynccontextmanager
+    async def lifespan(_app: FastAPI):
+        task = None
+        if os.getenv("KINDRED_EMIT_CORE_URL") and os.getenv("KINDRED_INTERNAL_SERVICE_KEY"):
+            task = asyncio.create_task(_continuous_awareness())
+        try:
+            yield
+        finally:
+            if task is not None:
+                task.cancel()
+                try:
+                    await task
+                except asyncio.CancelledError:
+                    pass
+
+    app = FastAPI(
+        title="Kindred BRAINSTEM Runtime",
+        version="0.1.0-alpha",
+        lifespan=lifespan,
+    )
     app.state.runtime = runtime
+    app.state.operational_awareness = awareness
+
+    def _require_awareness_key(
+        x_brainstem_awareness_key: str | None = Header(default=None),
+    ) -> None:
+        expected = os.getenv("BRAINSTEM_AWARENESS_KEY", "")
+        if not expected or not x_brainstem_awareness_key or not hmac.compare_digest(expected, x_brainstem_awareness_key):
+            raise HTTPException(401, "BRAINSTEM awareness key required")
+
+    @app.get("/awareness")
+    def awareness_state() -> dict[str, Any]:
+        return awareness.overview()
+
+    @app.get("/awareness/workers")
+    def workforce_state() -> dict[str, Any]:
+        return awareness.overview()
+
+    @app.post("/awareness/sync")
+    def awareness_sync(
+        x_brainstem_awareness_key: str | None = Header(default=None),
+    ) -> dict[str, Any]:
+        _require_awareness_key(x_brainstem_awareness_key)
+        return awareness.sync_emit()
+
+    @app.post("/awareness/workers/observe")
+    def observe_worker(
+        request: WorkforceObservationRequest,
+        x_brainstem_awareness_key: str | None = Header(default=None),
+    ) -> dict[str, Any]:
+        _require_awareness_key(x_brainstem_awareness_key)
+        try:
+            return awareness.observe(
+                request.source, request.worker_id,
+                request.kind, request.status, request.details,
+            )
+        except ValueError as exc:
+            raise HTTPException(422, str(exc)) from exc
 
     @app.get("/dcml/status")
     def dcml_status() -> dict[str, Any]:
