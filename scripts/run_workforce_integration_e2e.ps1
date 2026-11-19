@@ -1,12 +1,12 @@
 #Requires -Version 7.0
 # Isolated Windows 11 / PowerShell 7 two-service live integration and failure test.
-param([string]$Python='python',[int]$EmitPort=18001,[int]$BrainPort=18281)
+param([string]$Python='python',[int]$EmitPort=18001,[int]$BrainPort=18281,[string]$ReuseWorkspace='')
 $ErrorActionPreference='Stop'
 Set-StrictMode -Version Latest
 $original=@{}
 $envKeys=@('KINDRED_INTERNAL_SERVICE_KEY','BRAINSTEM_AWARENESS_KEY','KINDRED_EMIT_CORE_URL','KINDRED_SQLITE_PATH','KINDRED_STATE_DB','KINDRED_CLOUD_USE_LOCAL_STORE')
 foreach($k in $envKeys){$original[$k]=[Environment]::GetEnvironmentVariable($k,'Process')}
-$root=Join-Path ([IO.Path]::GetTempPath()) ('Kindred-Workforce-E2E-'+[guid]::NewGuid().ToString('N'))
+$root=if($ReuseWorkspace){ (Resolve-Path -LiteralPath $ReuseWorkspace -ErrorAction Stop).Path }else{ Join-Path ([IO.Path]::GetTempPath()) ('Kindred-Workforce-E2E-'+[guid]::NewGuid().ToString('N')) }
 $er=Join-Path $root 'EMIT'; $br=Join-Path $root 'BRAINSTEM'
 $ep=$null; $bp=$null
 function VerifyExit([string]$name){if($LASTEXITCODE -ne 0){throw "$name exit code $LASTEXITCODE"}}
@@ -80,6 +80,12 @@ try{
   $Python=Resolve-CompatiblePython $Python
   Write-Host "Using compatible interpreter: $Python"
   & $Python -c "import sys; print('Python',sys.version.split()[0])"; VerifyExit 'Python verification'
+  if($ReuseWorkspace){
+    Write-Host "Reusing already-installed integration environment: $root"
+    foreach($expected in @((Join-Path $er '.venv\Scripts\python.exe'),(Join-Path $br '.venv\Scripts\python.exe'),(Join-Path $er 'cloud\api\main.py'),(Join-Path $br 'brainstem\runtime\app.py'))){
+      if(-not (Test-Path -LiteralPath $expected -PathType Leaf)){throw "Cannot reuse incomplete workspace: $expected"}
+    }
+  }else{
   & git clone --depth 1 -b feature/native-workforce-inventory-20261118 https://github.com/KindredKJ/KINDRED_EMIT_CORE.git $er
   VerifyExit 'Private EMIT clone; authenticate Git first'
   & git clone --depth 1 -b feature/native-organizational-awareness-20261118 https://github.com/KindredKJ/kindred-brainstem.git $br
@@ -100,6 +106,9 @@ try{
     & $bPython -m pip check; VerifyExit 'BRAINSTEM pip check'
     & $bPython -m pytest -q tests/test_workforce_awareness.py; VerifyExit 'BRAINSTEM tests'
   }finally{Pop-Location}
+  }
+  $ePython=Join-Path $er '.venv\Scripts\python.exe'
+  $bPython=Join-Path $br '.venv\Scripts\python.exe'
   $bytes=[byte[]]::new(32);[Security.Cryptography.RandomNumberGenerator]::Fill($bytes)
   $env:KINDRED_INTERNAL_SERVICE_KEY=[Convert]::ToHexString($bytes)
   [Security.Cryptography.RandomNumberGenerator]::Fill($bytes)
