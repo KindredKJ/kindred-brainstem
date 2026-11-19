@@ -221,11 +221,11 @@ def test_transport_error_does_not_persist_internal_key(tmp_path, monkeypatch):
 
 def test_dag_releases_only_after_verified_predecessor(tmp_path, monkeypatch):
     store, aware, engine = _runtime(tmp_path)
-    aware.ingest_emit(_emit_inventory())
+    # No worker is initially online: dependency creation must never dispatch itself.
     parent = engine.dispatch(
         idempotency_key="dag-parent-0001", contract_id="runtime.snapshot@v1", payload={}
     )
-    assert parent["status"] == "leased" or parent["status"] == "queued" or parent["status"] == "failed"
+    assert parent["status"] == "queued"
     child = engine.dispatch(
         idempotency_key="dag-child-0001", contract_id="signal.deliver@v1",
         payload={"signal": "dependent"}, depends_on=[parent["task_id"]],
