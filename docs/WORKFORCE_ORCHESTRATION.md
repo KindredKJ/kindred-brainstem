@@ -50,3 +50,16 @@ pwsh -NoProfile -File (Join-Path $repo 'scripts/run_workforce_integration_e2e.ps
 ### Current evidence boundary
 
 The earlier awareness-only live E2E passed (14 EMIT lane instances, 14 BRAINSTEM observations, 0 after isolated EMIT shutdown, 14 records retained). The **new typed-contract + queue-execution** E2E has been committed and must be run before claiming this new milestone passes. Likewise, do not extrapolate 10,000-worker throughput or <50ms detection from unbenchmarked code.
+
+
+## PoECL v2 causal receipts (KACF integration seam)
+
+EMIT now creates a versioned `kindred.poecl.process_trace.v1` causal proof for every completed local worker-queue task. The proof includes task/worker/capability binding, input/output SHA-256 digests, an application-instrumented Merkle event root, an ordered SQLite causal-chain head, monotonic-process elapsed time, and an HMAC covering the entire envelope.
+
+The new immutable built-in contract versions `runtime.snapshot@v2` and `signal.deliver@v2` require this causal proof. BRAINSTEM verifies the HMAC **and independently recomputes** the Merkle root and chain digest before accepting a receipt or surfacing its causal chain hash to `/world`. Existing `@v1` receipts remain supported for backward compatibility, and malformed optional proofs are rejected even on `@v1`.
+
+The attestation tier is `emit_local_process_instrumentation`. It is not a hardware-anchored syscall trace, remote trusted execution, or independently proven computation. `energy_joules_est=null` signals that power use is **unmeasured**; MCVP economic yield is not inferred from this field.
+
+EMIT's `scripts/benchmark_kacf.py` generates real machine-local p50/p95/p99 timing measurements for HMAC, causal proof creation and validation, SQLite chain commits, and whole-ledger validation. The BRAINSTEM E2E runner requires a `@v2` signed receipt and compares its chain digest with BRAINSTEM cognitive world evidence. Both feature branches still require a successful founder machine test before the new PoECL behavior can be described as verified live.
+
+**Credential lifecycle caveat:** current HMAC verification uses the configured live service key. A persistent ledger signed under an older key cannot be fully checked after rotating that key without a versioned key registry; therefore the isolated runner now generates fresh per-run SQLite databases rather than mixing records signed by different ephemeral keys. Production key IDs and trusted historical verifier keys are further work.
