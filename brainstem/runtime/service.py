@@ -28,6 +28,7 @@ class RuntimeService:
             "codex": CodexAdapter(),
         }
         self.model = BrainstemModel(store, self.adapters)
+        self.awareness = self.model.awareness
         self.strata = PortZeroGateway(store, self.model.dcml.authority)
 
     def health(self) -> dict[str, Any]:
