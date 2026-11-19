@@ -184,6 +184,17 @@ def build_app(
         except ContractViolationError as exc:
             raise HTTPException(422, str(exc)) from exc
 
+    @app.get("/contracts/{contract_id}")
+    def get_workforce_contract(
+        contract_id: str,
+        x_brainstem_awareness_key: str | None = Header(default=None),
+    ) -> dict[str, Any]:
+        _require_awareness_key(x_brainstem_awareness_key)
+        try:
+            return orchestrator.contracts.contract(contract_id, require_active=False)
+        except ContractViolationError as exc:
+            raise HTTPException(404, str(exc)) from exc
+
     @app.delete("/contracts/{contract_id}")
     def retire_workforce_contract(
         contract_id: str,
