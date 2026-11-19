@@ -70,6 +70,16 @@ BUILTIN_CONTRACTS = {
 }
 
 
+# New contract IDs require PoECL evidence. Historical @v1 remains valid and
+# immutable; no active task is silently migrated to a new receipt contract.
+for _capability in ("runtime.snapshot", "signal.deliver"):
+    _v2 = dict(BUILTIN_CONTRACTS[f"{_capability}@v1"])
+    _v2["version"] = "v2"
+    _v2["verification_tier"] = "signal_lane_causal"
+    BUILTIN_CONTRACTS[f"{_capability}@v2"] = _v2
+
+
+
 class AgenticContractRegistry:
     def __init__(self, store: StateStore):
         self.store = store
@@ -106,7 +116,7 @@ class AgenticContractRegistry:
                           verification_tier: str = "signal_lane") -> dict[str, Any]:
         if not CONTRACT_NAME.fullmatch(contract_id) or contract_id != f"{capability}@{version}":
             raise ContractViolationError("contract identity must be capability@vN")
-        if verification_tier != "signal_lane" or not require_live_signal_lane:
+        if verification_tier not in {"signal_lane", "signal_lane_causal"} or not require_live_signal_lane:
             raise ContractViolationError("unverified agent execution tier is not enabled")
         if not 5 <= max_lease_seconds <= 3600 or not 0 <= max_retries <= 8:
             raise ContractViolationError("invalid execution resource bounds")
