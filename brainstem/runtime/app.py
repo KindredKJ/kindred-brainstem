@@ -162,6 +162,7 @@ def build_app(
         except ValueError as exc:
             raise HTTPException(422, str(exc)) from exc
 
+    @app.get("/contracts")
     @app.get("/orchestration/contracts")
     def workforce_contracts(
         x_brainstem_awareness_key: str | None = Header(default=None),
@@ -169,7 +170,8 @@ def build_app(
         _require_awareness_key(x_brainstem_awareness_key)
         return orchestrator.contracts.list_contracts()
 
-    @app.post("/orchestration/contracts")
+    @app.post("/contracts", status_code=201)
+    @app.post("/orchestration/contracts", status_code=201)
     def register_workforce_contract(
         request: WorkforceContractRequest,
         x_brainstem_awareness_key: str | None = Header(default=None),
@@ -181,6 +183,17 @@ def build_app(
             return orchestrator.contracts.register_contract(**request.model_dump())
         except ContractViolationError as exc:
             raise HTTPException(422, str(exc)) from exc
+
+    @app.delete("/contracts/{contract_id}")
+    def retire_workforce_contract(
+        contract_id: str,
+        x_brainstem_awareness_key: str | None = Header(default=None),
+    ) -> dict[str, Any]:
+        _require_awareness_key(x_brainstem_awareness_key)
+        try:
+            return orchestrator.contracts.deactivate_contract(contract_id)
+        except ContractViolationError as exc:
+            raise HTTPException(404, str(exc)) from exc
 
     @app.post("/orchestration/dispatch")
     def workforce_dispatch(
