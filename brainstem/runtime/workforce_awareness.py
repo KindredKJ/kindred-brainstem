@@ -9,6 +9,7 @@ from __future__ import annotations
 import json
 import os
 import re
+import hmac
 from datetime import datetime, timezone
 from typing import Any
 from urllib.parse import urlsplit
@@ -18,6 +19,8 @@ from brainstem.runtime.store import StateStore
 
 WORKFORCE_SCHEMA = "kindred.workforce.inventory.v1"
 OBSERVATION_TTL_SECONDS = 60
+MAX_CLOCK_SKEW_SECONDS = 5.0
+MAX_OBSERVATION_AGE_SECONDS = 45.0
 MAX_RESPONSE_BYTES = 2_000_000
 IDENTIFIER = re.compile(r"^[A-Za-z0-9_.:-]{1,160}$")
 
@@ -32,9 +35,22 @@ def _age_seconds(value: str, now: datetime) -> float:
         if parsed.tzinfo is None:
             return float("inf")
         delta = (now - parsed).total_seconds()
-        return max(0.0, delta) if delta >= -30.0 else float("inf")
+        return max(0.0, delta) if delta >= -MAX_CLOCK_SKEW_SECONDS else float("inf")
     except (ValueError, TypeError, AttributeError):
         return float("inf")
+
+
+def _sanitize_error_message(exc: Exception | str, secret: str | None = None) -> str:
+    """Remove configured credentials and byte-literal header values before persistence."""
+    msg = f"{type(exc).__name__}: {exc}" if isinstance(exc, Exception) else str(exc)
+    if secret:
+        for candidate in (secret, secret.strip(), repr(secret)):
+            if candidate:
+                msg = msg.replace(candidate, "[REDACTED]")
+    msg = re.sub(r"""b(['"]).*?\1""", "b'[REDACTED]'", msg)
+    msg = re.sub(r"(?i)(x-kindred-internal-key|authorization)\s*[:=]\s*[^\s,;]+",
+                 r"\1=[REDACTED]", msg)
+    return msg[:300]
 
 
 def _identifier(value: str, name: str) -> str:
@@ -104,10 +120,10 @@ class OperationalAwareness:
         })
         return record
 
-    def _upsert(self, records: list[dict[str, Any]]) -> None:
-        with self.store.connect() as db:
-            for record in records:
-                db.execute(
+    @staticmethod
+    def _upsert_with_connection(db, records: list[dict[str, Any]]) -> None:
+        for record in records:
+            db.execute(
                     """INSERT INTO workforce_observations
                        (source, worker_id, kind, reported_status, observed_at, payload)
                        VALUES (?, ?, ?, ?, ?, ?)
@@ -119,7 +135,11 @@ class OperationalAwareness:
                         record["reported_status"], record["observed_at"],
                         json.dumps(record, sort_keys=True),
                     ),
-                )
+            )
+
+    def _upsert(self, records: list[dict[str, Any]]) -> None:
+        with self.store.connect() as db:
+            self._upsert_with_connection(db, records)
 
     def ingest_emit(self, snapshot: dict[str, Any]) -> dict[str, Any]:
         if not isinstance(snapshot, dict) or snapshot.get("schema_version") != WORKFORCE_SCHEMA:
@@ -128,7 +148,7 @@ class OperationalAwareness:
             raise ValueError("untrusted workforce source")
         now = datetime.now(timezone.utc)
         age = _age_seconds(snapshot.get("observed_at"), now)
-        if age > 120:
+        if age > MAX_OBSERVATION_AGE_SECONDS:
             raise ValueError("stale or invalid inventory snapshot")
         workers = snapshot.get("workers")
         registrations = snapshot.get("registered_agents")
@@ -146,20 +166,21 @@ class OperationalAwareness:
             if raw.get("kind") != "signal_lane":
                 raise ValueError("unexpected EMIT worker kind")
             status = "online" if raw.get("status") == "online" else "not_confirmed_online"
-            if _age_seconds(raw.get("last_seen"), now) > 45:
+            if _age_seconds(raw.get("last_seen"), now) > MAX_OBSERVATION_AGE_SECONDS:
                 status = "not_confirmed_online"
             records.append({
                 "source": "kindred_emit_core",
                 "worker_id": wid,
                 "kind": "signal_lane",
                 "reported_status": status,
-                "observed_at": _timestamp(),
+                "observed_at": now.isoformat(),
                 "verification": "emit_heartbeat_observed_not_external_execution",
                 "details": {
                     "lane": raw.get("lane"),
                     "processed_signals": raw.get("processed_signals", 0),
                     "failure_count": raw.get("failure_count", 0),
                     "last_seen": raw.get("last_seen"),
+                    "capabilities": raw.get("capabilities", []) if isinstance(raw.get("capabilities"), list) else [],
                     "external_action_verified": False,
                 },
             })
@@ -174,14 +195,16 @@ class OperationalAwareness:
         }
         if not 0 <= clean_summary["configured_lane_definitions"] <= 4096:
             raise ValueError("invalid configured worker count")
+        at = now.isoformat()
         with self.store.connect() as db:
+            # One writer owns the entire invalidate + upsert + summary transition.
+            # A failed ingestion rolls back without exposing an empty online set.
+            db.execute("BEGIN IMMEDIATE")
             db.execute(
                 """UPDATE workforce_observations SET reported_status='not_confirmed_online'
                    WHERE source='kindred_emit_core'"""
             )
-        self._upsert(records)
-        at = _timestamp()
-        with self.store.connect() as db:
+            self._upsert_with_connection(db, records)
             db.execute(
                 """INSERT INTO workforce_sources (source, last_success_at, last_error, summary)
                    VALUES (?, ?, NULL, ?)
@@ -197,7 +220,7 @@ class OperationalAwareness:
         return self.overview()
 
     def _sync_failure(self, message: str) -> dict[str, Any]:
-        safe = message[:300]
+        safe = _sanitize_error_message(message, os.getenv("KINDRED_INTERNAL_SERVICE_KEY", ""))
         with self.store.connect() as db:
             db.execute(
                 """INSERT INTO workforce_sources (source, last_success_at, last_error, summary)
@@ -233,7 +256,7 @@ class OperationalAwareness:
                     raise ValueError("inventory response exceeds limit")
             return self.ingest_emit(json.loads(payload))
         except Exception as exc:
-            return self._sync_failure(f"{type(exc).__name__}: {exc}")
+            return self._sync_failure(_sanitize_error_message(exc, key))
 
     def overview(self) -> dict[str, Any]:
         current = datetime.now(timezone.utc)
