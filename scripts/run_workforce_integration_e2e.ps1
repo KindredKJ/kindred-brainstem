@@ -100,7 +100,7 @@ try{
     } finally { Pop-Location }
     Push-Location $er
     try {
-      & $checkedEmitPython -m pytest -q cloud/tests/test_worker_inventory.py cloud/tests/test_workforce_execution.py
+      & $checkedEmitPython -m pytest -q cloud/tests/test_worker_inventory.py cloud/tests/test_workforce_execution.py cloud/tests/test_causal_attestation.py
       VerifyExit 'Updated EMIT worker execution tests'
     } finally { Pop-Location }
   }else{
@@ -116,7 +116,7 @@ try{
   try{
     & $ePython -m pip install -r requirements.txt; VerifyExit 'EMIT install'
     & $ePython -m pip check; VerifyExit 'EMIT pip check'
-    & $ePython -m pytest -q cloud/tests/test_worker_inventory.py cloud/tests/test_workforce_execution.py; VerifyExit 'EMIT tests'
+    & $ePython -m pytest -q cloud/tests/test_worker_inventory.py cloud/tests/test_workforce_execution.py cloud/tests/test_causal_attestation.py; VerifyExit 'EMIT tests'
   }finally{Pop-Location}
   Push-Location $br
   try{
