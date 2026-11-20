@@ -97,12 +97,12 @@ try{
     try {
       & $checkedBrainPython -m pip install -e '.[dev]'
       VerifyExit 'Updated BRAINSTEM orchestration dependencies'
-      & $checkedBrainPython -m pytest -q tests/test_workforce_awareness.py tests/test_workforce_orchestration.py tests/test_causal_mesh.py
+      & $checkedBrainPython -m pytest -q tests/test_workforce_awareness.py tests/test_workforce_orchestration.py tests/test_causal_mesh.py tests/test_autopoietic_fabric.py
       VerifyExit 'Updated BRAINSTEM workforce and orchestration tests'
     } finally { Pop-Location }
     Push-Location $er
     try {
-      & $checkedEmitPython -m pytest -q cloud/tests/test_worker_inventory.py cloud/tests/test_workforce_execution.py cloud/tests/test_causal_attestation.py
+      & $checkedEmitPython -m pytest -q cloud/tests/test_worker_inventory.py cloud/tests/test_workforce_execution.py cloud/tests/test_causal_attestation.py cloud/tests/test_causal_batch.py
       VerifyExit 'Updated EMIT worker execution tests'
     } finally { Pop-Location }
   }else{
@@ -118,13 +118,13 @@ try{
   try{
     & $ePython -m pip install -r requirements.txt; VerifyExit 'EMIT install'
     & $ePython -m pip check; VerifyExit 'EMIT pip check'
-    & $ePython -m pytest -q cloud/tests/test_worker_inventory.py cloud/tests/test_workforce_execution.py cloud/tests/test_causal_attestation.py; VerifyExit 'EMIT tests'
+    & $ePython -m pytest -q cloud/tests/test_worker_inventory.py cloud/tests/test_workforce_execution.py cloud/tests/test_causal_attestation.py cloud/tests/test_causal_batch.py; VerifyExit 'EMIT tests'
   }finally{Pop-Location}
   Push-Location $br
   try{
     & $bPython -m pip install -e '.[dev]'; VerifyExit 'BRAINSTEM install'
     & $bPython -m pip check; VerifyExit 'BRAINSTEM pip check'
-    & $bPython -m pytest -q tests/test_workforce_awareness.py tests/test_workforce_orchestration.py tests/test_causal_mesh.py; VerifyExit 'BRAINSTEM tests'
+    & $bPython -m pytest -q tests/test_workforce_awareness.py tests/test_workforce_orchestration.py tests/test_causal_mesh.py tests/test_autopoietic_fabric.py; VerifyExit 'BRAINSTEM tests'
   }finally{Pop-Location}
   }
   $ePython=Join-Path $er '.venv\Scripts\python.exe'
