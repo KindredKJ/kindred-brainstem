@@ -437,3 +437,82 @@ def test_v2_causal_contract_rejects_missing_and_invalid_proofs(tmp_path, monkeyp
             contract_id="runtime.snapshot@v2", payload={},
         )
     assert engine.summary()["verified_outcomes"] == []
+
+
+def test_kacf_dispatch_prepares_inert_fork_even_without_live_worker(tmp_path):
+    store, aware, engine = _runtime(tmp_path)
+    task = engine.dispatch(
+        idempotency_key="kacf-queued-fork-001", contract_id="runtime.snapshot@v2",
+        payload={},
+    )
+    assert task["status"] == "queued" and task["assigned_worker_id"] is None
+    snapshot = engine.fabric.summary()
+    assert len(snapshot["forks"]) == 1
+    assert snapshot["forks"][0]["task_id"] == task["task_id"]
+    assert snapshot["forks"][0]["status"] == "prepared"
+    assert snapshot["forks"][0]["dispatch_policy"] == "single"
+    assert snapshot["energy_source"] == "unmeasured"
+    assert snapshot["hcm_recovery_queue"] == []
+
+
+def test_kacf_v2_causal_receipt_collapses_once_and_updates_measured_proxy(tmp_path, monkeypatch):
+    store, aware, engine = _runtime(tmp_path)
+    aware.ingest_emit(_emit_inventory())
+    monkeypatch.setattr(engine, "_request_emit", lambda path, payload=None, **_: (
+        None if payload is None else _poecl_receipt(
+            engine.task(payload["task_id"]), monkeypatch
+        )
+    ))
+    result = engine.dispatch(
+        idempotency_key="kacf-v2-collapse-001",
+        contract_id="runtime.snapshot@v2", payload={},
+    )
+    assert result["status"] == "verified_complete"
+    fork = store.query("SELECT * FROM kacf_forks WHERE task_id=?", (result["task_id"],))[0]
+    assert fork["status"] == "collapsed" and fork["outcome"] == "succeeded"
+    assert fork["receipt_hash"] is not None
+    summary = engine.summary()
+    assert summary["kacf"]["metabolics"][0]["samples"] == 1
+    assert summary["kacf"]["metabolics"][0]["joules"] is None
+    # The dispatch idempotency key must not double-count the signed outcome.
+    replay = engine.dispatch(
+        idempotency_key="kacf-v2-collapse-001",
+        contract_id="runtime.snapshot@v2", payload={},
+    )
+    assert replay["task_id"] == result["task_id"]
+    assert engine.fabric.summary()["metabolics"][0]["samples"] == 1
+
+
+def test_kacf_invalid_signed_outcome_cannot_collapse_fork(tmp_path, monkeypatch):
+    store, aware, engine = _runtime(tmp_path)
+    aware.ingest_emit(_emit_inventory())
+    monkeypatch.setattr(engine, "_request_emit", lambda path, payload=None, **_: (
+        None if payload is None else _poecl_receipt(
+            engine.task(payload["task_id"]), monkeypatch, corrupt_proof=True
+        )
+    ))
+    with pytest.raises(OrchestrationError, match="causal receipt"):
+        engine.dispatch(
+            idempotency_key="kacf-bad-proof-001",
+            contract_id="runtime.snapshot@v2", payload={},
+        )
+    forks = store.query("SELECT status FROM kacf_forks")
+    assert len(forks) == 1 and forks[0]["status"] == "prepared"
+    assert engine.fabric.summary()["metabolics"] == []
+
+
+def test_kacf_hcm_incident_only_after_terminal_task(tmp_path):
+    store, aware, engine = _runtime(tmp_path)
+    task = engine.dispatch(
+        idempotency_key="kacf-hcm-incident-001",
+        contract_id="signal.deliver@v2", payload={"signal": "probe"},
+    )
+    assert engine.fabric.reconcile_terminal_incidents() == 0
+    with store.connect() as db:
+        db.execute(
+            "UPDATE workforce_tasks SET status='dead_letter',last_error='test exhausted' WHERE task_id=?",
+            (task["task_id"],),
+        )
+    assert engine.fabric.reconcile_terminal_incidents() == 1
+    assert engine.fabric.reconcile_terminal_incidents() == 0
+    assert engine.fabric.summary()["hcm_recovery_queue"][0]["capability"] == "signal.deliver"
