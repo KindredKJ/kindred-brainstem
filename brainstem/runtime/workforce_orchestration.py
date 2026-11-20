@@ -20,6 +20,7 @@ from urllib.request import ProxyHandler, Request, build_opener
 
 from brainstem.runtime.operators import AgenticContractRegistry, ContractViolationError, iso, utcnow, WorkforceOperatorSupervisor
 from brainstem.runtime.causal_verification import verify_process_attestation
+from brainstem.fabric.autopoietic import AutopoieticFabric
 from brainstem.runtime.store import StateStore
 from brainstem.runtime.workforce_awareness import OperationalAwareness, _NoRedirect, _age_seconds, _sanitize_error_message
 
@@ -110,6 +111,8 @@ class WorkforceOrchestrator:
                     PRIMARY KEY(source,worker_id)
                 );
             """)
+        # KACF shares the same StateStore: no second worker queue or world authority.
+        self.fabric = AutopoieticFabric(store)
 
     @staticmethod
     def _record(db, task_id: str) -> dict[str, Any] | None:
@@ -153,6 +156,7 @@ class WorkforceOrchestrator:
             "active_leases": tasks,
             "verified_outcomes": receipts,
             "verification_scope": "authenticated_emit_local_lane_execution_not_external_agent_proof",
+            "kacf": self.fabric.summary(limit),
         }
 
     @staticmethod
@@ -305,6 +309,8 @@ class WorkforceOrchestrator:
                 "UPDATE workforce_tasks SET status='verified_complete',last_error=NULL,updated_at=? WHERE task_id=?",
                 (iso(), task_id),
             )
+            # Collapse happens inside the *same transaction* as the receipt insert.
+            self.fabric.collapse_verified_in_transaction(db, task_id=task_id)
             db.execute(
                 """UPDATE workforce_circuits SET failures=0,open_until=NULL
                    WHERE source=? AND worker_id=?""",
@@ -444,6 +450,10 @@ class WorkforceOrchestrator:
                  contract["max_retries"],now,now,lease_seconds,
                  json.dumps(dependencies),now,now),
             )
+            self.fabric.prepare_in_transaction(
+                db, task_id=task_id, capability=contract["capability"],
+                payload_sha256=digest(payload),
+            )
             WorkforceOperatorSupervisor.log(db,task_id,"contract_dispatch","accepted",
                 f"immutable contract {contract_id}; prerequisites={len(dependencies)}")
         if status == "blocked":
@@ -472,7 +482,8 @@ class WorkforceOrchestrator:
             except OrchestrationError:
                 # Failure is durably recorded and backoff decided by the operator.
                 continue
-        return {"attempted": attempts}
+        recovered = self.fabric.reconcile_terminal_incidents()
+        return {"attempted": attempts, "hcm_recovery_proposals": recovered}
 
     def renew_lease(self, task_id: str, seconds: int = 15) -> dict[str, Any]:
         if not 5 <= seconds <= 60:
