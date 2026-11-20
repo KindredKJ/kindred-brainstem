@@ -292,6 +292,12 @@ class WorkforceOrchestrator:
             if record["lease_expires_at"] <= iso():
                 raise OrchestrationError(409, "task lease expired before receipt verification")
             self._verify(record, receipt)
+            # Rolling-upgrade compatibility: preexisting queued tasks lack KACF forks.
+            # Prepare a non-executable fork only after the receipt is authenticated.
+            self.fabric.prepare_in_transaction(
+                db, task_id=task_id, capability=record["required_capability"],
+                payload_sha256=record["payload_sha256"],
+            )
             if receipt["status"] == "failed":
                 raise OrchestrationError(502, "EMIT worker returned a signed failure")
             db.execute(
