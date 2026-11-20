@@ -211,6 +211,15 @@ try{
   if($kacfOutcome.causal_chain_hash -ne $first.verified_receipt.causal_proof.chain_hash){
     throw 'BRAINSTEM cognitive world does not preserve verified PoECL chain digest'
   }
+  $fabric=@($worldAfter.workforce_orchestration.kacf.forks | Where-Object {$_.task_id -eq $first.task_id})
+  if($fabric.Count -ne 1 -or $fabric[0].status -ne 'collapsed' -or $fabric[0].outcome -ne 'succeeded'){
+    throw 'KACF ESCCB branch did not collapse after the verified live task receipt'
+  }
+  $metric=@($worldAfter.workforce_orchestration.kacf.metabolics | Where-Object {$_.capability -eq 'runtime.snapshot'})
+  if($metric.Count -ne 1 -or $metric[0].samples -lt 1 -or $metric[0].energy_measurement_status -ne 'unavailable'){
+    throw 'KACF measured utility proxy missing or invented energy evidence'
+  }
+  Write-Host "KACF ESCCB verified collapse and measured-latency utility recorded: $($first.task_id)"
   Write-Host "Real contract-bound worker execution verified: $($first.task_id), worker=$($first.assigned_worker_id)"
   Write-Host 'Live sync and signed execution passed. Testing worker loss; waiting 65 seconds for observation TTL.'
   Stop-Process -Id $ep.Id -Force; $null=$ep.WaitForExit(10000)
