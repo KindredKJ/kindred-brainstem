@@ -663,9 +663,17 @@ class BrainstemModel:
         scored: list[dict[str, Any]] = []
         for item in sorted(tools, key=lambda x: x["name"]):
             name = item["name"]
-            candidate_terms = terms(name + " " + item["description"])
-            overlap = len(candidate_terms & objective_terms)
-            relevance = overlap / max(1, len(objective_terms))
+            name_matches = len(terms(name) & objective_terms)
+            description_matches = len(terms(item["description"]) & objective_terms)
+            # A tool *mentioning* a competing capability (e.g. issues
+            # "excluding pull requests") must not outrank the tool whose
+            # actual registered name matches the objective.
+            overlap = name_matches + description_matches
+            relevance = min(
+                1.0,
+                (1.4 * name_matches + 0.25 * description_matches)
+                / max(1, len(objective_terms)),
+            )
             prior = outcomes.get(name, [])
             # A bounded empirical adjustment makes later choices respond to
             # actual observed API execution rather than to model rhetoric.
