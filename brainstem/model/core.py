@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import hashlib
 import json
+import re
 import uuid
 from typing import Any
 
@@ -592,6 +594,257 @@ class BrainstemModel:
             "language_generation_performed": False,
             "external_outcome_verified": False,
             "learning_status": "not_evaluated",
+        }
+
+    def select_native_tool(
+        self,
+        session_id: str,
+        objective: str,
+        tools: list[dict[str, Any]],
+        context: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        """Let native DCML choose among *observed* read tools, not wing presets.
+
+        The inference is deterministic evidence-weighted tool matching using
+        the existing DCML counterfactual decision and persistent outcome data.
+        It is native policy inference, not an LLM or an external tool call.
+        """
+        if not isinstance(objective, str) or not 1 <= len(objective.strip()) <= 1200:
+            raise ValueError("objective must be 1-1200 characters")
+        if not isinstance(tools, list) or not 2 <= len(tools) <= 12:
+            raise ValueError("provide 2-12 live read-capability candidates")
+        if context is not None and (
+            not isinstance(context, dict)
+            or len(json.dumps(context, sort_keys=True).encode()) > 8192
+        ):
+            raise ValueError("tool decision context must be a small JSON object")
+        names: set[str] = set()
+        for item in tools:
+            if (
+                not isinstance(item, dict)
+                or set(item) != {"name", "description", "risk"}
+                or not isinstance(item["name"], str)
+                or not re.fullmatch(r"[a-z][a-z0-9._-]{3,110}", item["name"])
+                or not isinstance(item["description"], str)
+                or not 4 <= len(item["description"]) <= 600
+                or item["risk"] != "read"
+                or item["name"] in names
+            ):
+                raise ValueError("tool candidates must be unique typed read capabilities")
+            names.add(item["name"])
+
+        def terms(value: str) -> set[str]:
+            ignore = {"the", "this", "that", "and", "for", "from",
+                      "with", "kindred", "labs", "wing", "look", "review",
+                      "read", "list", "find", "latest", "recent", "open",
+                      "all", "get", "check", "about", "actual", "our"}
+            words = re.findall(r"[a-z0-9]+", value.lower())
+            return {
+                (word[:-1] if word.endswith("s") and len(word) > 4 else word)
+                for word in words if word not in ignore and len(word) > 2
+            }
+
+        objective_terms = terms(objective)
+        if not objective_terms:
+            raise ValueError("objective lacks distinctive tool-selection terms")
+        # Recall from persisted *observed* tool outcomes, not fabricated
+        # counterfactual results. The original BRAINSTEM records stay canonical.
+        historical = self.store.query(
+            """SELECT payload FROM counterfactual_decisions
+               WHERE status='VERIFIED' ORDER BY updated_at DESC LIMIT 300"""
+        )
+        outcomes: dict[str, list[float]] = {}
+        for row in historical:
+            data = json.loads(row["payload"])
+            tool_name = data.get("chosen_strategy")
+            utility = data.get("actual_outcome")
+            if tool_name in names and isinstance(utility, (int, float)):
+                outcomes.setdefault(tool_name, []).append(float(utility))
+        scored: list[dict[str, Any]] = []
+        for item in sorted(tools, key=lambda x: x["name"]):
+            name = item["name"]
+            candidate_terms = terms(name + " " + item["description"])
+            overlap = len(candidate_terms & objective_terms)
+            relevance = overlap / max(1, len(objective_terms))
+            prior = outcomes.get(name, [])
+            # A bounded empirical adjustment makes later choices respond to
+            # actual observed API execution rather than to model rhetoric.
+            empirical = (sum(prior) / len(prior)) if prior else 0.5
+            expected = max(
+                0.05, min(0.98, 0.35 + 0.52 * relevance
+                          + (0.28 * (empirical - 0.5) if prior else 0)),
+            )
+            scored.append({
+                "strategy": name,
+                "expected_success": expected,
+                "risk": 0.02,
+                "expected_cost": 0.0,
+                "expected_latency_ms": 50.0,
+                "reversible": True,
+                "uncertainty": max(0.02, 0.2 / (1 + len(prior))),
+                "lexical_overlap_count": overlap,
+                "empirical_outcomes": len(prior),
+                "empirical_success_rate": empirical if prior else None,
+            })
+        decision = self.dcml.advanced.counterfactual_decide(scored)
+        decision_id = decision["id"]
+        chosen = decision["chosen_strategy"]
+        evidence_id = self.store.add_evidence(
+            session_id,
+            "dcml_native_tool_choice",
+            {
+                "decision_id": decision_id,
+                "selected_tool": chosen,
+                "objective_sha256": hashlib.sha256(objective.encode()).hexdigest(),
+                "candidate_names": sorted(names),
+                "mission_id": (context or {}).get("mission_id"),
+                "wing": (context or {}).get("wing"),
+                "outcome_verified": False,
+            },
+            status="OBSERVED_LOCAL",
+        )
+        state = self.inspect_state()
+        state.current_context = context or {}
+        state.working_memory = [objective]
+        state.capability_history.append("native_dcml_tool_choice")
+        state.revision += 1
+        self._save_state(state)
+        self.store.event("dcml.tool_choice", {
+            "decision_id": decision_id, "session_id": session_id,
+            "selected_tool": chosen, "evidence_id": evidence_id,
+            "state_revision": state.revision,
+        })
+        return {
+            "schema": "kindred.brainstem.native-tool-choice.v1",
+            "model_identity": self.state_id,
+            "session_id": session_id,
+            "decision_id": decision_id,
+            "selected_tool": chosen,
+            "choice_evidence_id": evidence_id,
+            "state_revision": state.revision,
+            "decision_policy": "dcml_counterfactual_utility_with_observed_feedback",
+            "tool_candidates": len(scored),
+            "scored_candidates": decision["candidates"],
+            "outcome_verified": False,
+            "external_model_used": False,
+            "language_generation_performed": False,
+            "external_action_executed": False,
+        }
+
+    def observe_native_tool_outcome(
+        self,
+        session_id: str,
+        decision_id: str,
+        selected_tool: str,
+        observed_success: bool,
+        provider_result_sha256: str,
+        continuum_evidence_sha256: str,
+        autonomy_audit_sha256: str,
+    ) -> dict[str, Any]:
+        """Record a gateway/Continuum-attested read outcome for future policy.
+
+        The observation asserts *tool execution succeeded/failed*, not that
+        an external customer outcome, prediction, or counterfactual was true.
+        """
+        evidence_hashes = (
+            provider_result_sha256, continuum_evidence_sha256,
+            autonomy_audit_sha256,
+        )
+        if not all(
+            isinstance(value, str) and re.fullmatch(r"[a-f0-9]{64}", value)
+            for value in evidence_hashes
+        ) or not isinstance(observed_success, bool):
+            raise ValueError("observed outcome requires three verifiable hashes")
+        if not isinstance(decision_id, str) or not isinstance(selected_tool, str):
+            raise ValueError("decision ID and selected tool required")
+        decision_rows = self.store.query(
+            "SELECT status,payload FROM counterfactual_decisions WHERE id=?",
+            (decision_id,),
+        )
+        if not decision_rows:
+            raise KeyError(decision_id)
+        decision = decision_rows[0]
+        payload = json.loads(decision["payload"])
+        if payload.get("chosen_strategy") != selected_tool:
+            raise ValueError("observed tool differs from BRAINSTEM's selection")
+        choices = self.store.query(
+            """SELECT id,content FROM evidence
+               WHERE session_id=? AND kind='dcml_native_tool_choice'""",
+            (session_id,),
+        )
+        choice = next((
+            json.loads(item["content"]) for item in choices
+            if json.loads(item["content"]).get("decision_id") == decision_id
+        ), None)
+        if choice is None or choice["selected_tool"] != selected_tool:
+            raise ValueError("tool decision is not owned by this native session")
+        earlier = self.store.query(
+            """SELECT id,content FROM evidence
+               WHERE session_id=? AND kind='dcml_native_tool_outcome'""",
+            (session_id,),
+        )
+        for row in earlier:
+            old = json.loads(row["content"])
+            if old.get("decision_id") != decision_id:
+                continue
+            if (
+                old.get("selected_tool") == selected_tool
+                and old.get("observed_success") is observed_success
+                and [old.get("provider_result_sha256"),
+                     old.get("continuum_evidence_sha256"),
+                     old.get("autonomy_audit_sha256")] == list(evidence_hashes)
+            ):
+                return {
+                    "schema": "kindred.brainstem.native-tool-outcome.v1",
+                    "decision_id": decision_id,
+                    "outcome_evidence_id": row["id"],
+                    "already_recorded": True,
+                    "outcome_status": "observed_provider_execution",
+                    "adaptive_policy_updated": True,
+                }
+            raise ValueError("conflicting tool outcome already exists")
+        if decision["status"] != "AVAILABLE":
+            raise ValueError("tool decision has already been evaluated")
+        evaluation = self.dcml.advanced.observe_counterfactual(
+            decision_id, float(observed_success), {}
+        )
+        evidence_id = self.store.add_evidence(
+            session_id, "dcml_native_tool_outcome", {
+                "decision_id": decision_id,
+                "selected_tool": selected_tool,
+                "observed_success": observed_success,
+                "provider_result_sha256": provider_result_sha256,
+                "continuum_evidence_sha256": continuum_evidence_sha256,
+                "autonomy_audit_sha256": autonomy_audit_sha256,
+                "counterfactual_observation_id": evaluation["id"],
+                "alternative_outcomes_observed": False,
+                "customer_success_verified": False,
+            },
+            status="OBSERVED_LOCAL",
+        )
+        state = self.inspect_state()
+        state.capability_history.append("native_dcml_tool_outcome_observed")
+        state.revision += 1
+        self._save_state(state)
+        self.store.event("dcml.tool_outcome_observed", {
+            "decision_id": decision_id, "session_id": session_id,
+            "evidence_id": evidence_id, "observed_success": observed_success,
+            "state_revision": state.revision,
+        })
+        return {
+            "schema": "kindred.brainstem.native-tool-outcome.v1",
+            "model_identity": self.state_id,
+            "decision_id": decision_id,
+            "selected_tool": selected_tool,
+            "observed_success": observed_success,
+            "outcome_evidence_id": evidence_id,
+            "state_revision": state.revision,
+            "counterfactual_observation_id": evaluation["id"],
+            "outcome_status": "observed_provider_execution",
+            "adaptive_policy_updated": True,
+            "model_weights_trained": False,
+            "independent_customer_outcome_verified": False,
+            "already_recorded": False,
         }
 
     def cognitive_cycle(
