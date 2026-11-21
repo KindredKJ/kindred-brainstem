@@ -119,6 +119,29 @@ class RuntimeService:
         self.store.add_message(session_id, "user", message, "brainstem-native")
         return result
 
+    def select_native_tool(
+        self, session_id: str, objective: str, tools: list[dict[str, Any]],
+        context: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        session = self.store.session(session_id)
+        if session["model"] != "brainstem-native":
+            raise ValueError("Tool choice requires a native BRAINSTEM session")
+        return self.model.select_native_tool(session_id, objective, tools, context)
+
+    def observe_native_tool_outcome(
+        self, session_id: str, decision_id: str, selected_tool: str,
+        observed_success: bool, provider_result_sha256: str,
+        continuum_evidence_sha256: str, autonomy_audit_sha256: str,
+    ) -> dict[str, Any]:
+        session = self.store.session(session_id)
+        if session["model"] != "brainstem-native":
+            raise ValueError("Outcome observation requires native BRAINSTEM")
+        return self.model.observe_native_tool_outcome(
+            session_id, decision_id, selected_tool, observed_success,
+            provider_result_sha256, continuum_evidence_sha256,
+            autonomy_audit_sha256,
+        )
+
     def chat(self, session_id: str, text: str) -> dict[str, Any]:
         session = self.store.session(session_id)
         model_name = session["model"]
