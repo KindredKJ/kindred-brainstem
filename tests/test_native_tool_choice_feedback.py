@@ -72,7 +72,7 @@ def test_read_only_candidates_are_strictly_enforced(service):
 
 def test_observed_failure_changes_next_native_tool_choice(service):
     session = service.create_native_session("continuum:platform")
-    options = [CANDIDATES[0], CANDIDATES[2]]
+    options = [CANDIDATES[1], CANDIDATES[2]]
     objective = "Monitor Github information"
     first = service.select_native_tool(session["id"], objective, options)
     assert first["selected_tool"] == "github.issues.list"
@@ -94,7 +94,7 @@ def test_observed_failure_changes_next_native_tool_choice(service):
             True, TEST_HASH, "b" * 64, "c" * 64,
         )
     second = service.select_native_tool(session["id"], objective, options)
-    assert second["selected_tool"] == "github.repository.get"
+    assert second["selected_tool"] == "github.pull_requests.list"
     assert service.store.query("SELECT id FROM counterfactual_observations")
 
 
