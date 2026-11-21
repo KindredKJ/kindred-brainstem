@@ -48,6 +48,29 @@ class NativeDCMLCycleRequest(BaseModel):
     context: dict[str, Any] | None = None
 
 
+class NativeToolChoiceCandidate(BaseModel):
+    name: str
+    description: str
+    risk: str
+
+
+class NativeToolChoiceRequest(BaseModel):
+    session_id: str
+    objective: str
+    tools: list[NativeToolChoiceCandidate]
+    context: dict[str, Any] | None = None
+
+
+class NativeToolOutcomeRequest(BaseModel):
+    session_id: str
+    decision_id: str
+    selected_tool: str
+    observed_success: bool
+    provider_result_sha256: str
+    continuum_evidence_sha256: str
+    autonomy_audit_sha256: str
+
+
 def build_app(
     database: Path | None = None, service: RuntimeService | None = None
 ) -> FastAPI:
@@ -83,6 +106,34 @@ def build_app(
             raise HTTPException(404, "Native session not found") from exc
         except ValueError as exc:
             raise HTTPException(422, str(exc)) from exc
+
+    @app.post("/dcml/native-tool-select")
+    def native_tool_select(request: NativeToolChoiceRequest) -> dict[str, Any]:
+        try:
+            return runtime.select_native_tool(
+                request.session_id, request.objective,
+                [tool.model_dump() for tool in request.tools],
+                request.context,
+            )
+        except KeyError as error:
+            raise HTTPException(404, "Native session not found") from error
+        except ValueError as error:
+            raise HTTPException(422, str(error)) from error
+
+    @app.post("/dcml/native-tool-outcome")
+    def native_tool_outcome(request: NativeToolOutcomeRequest) -> dict[str, Any]:
+        try:
+            return runtime.observe_native_tool_outcome(
+                request.session_id, request.decision_id,
+                request.selected_tool, request.observed_success,
+                request.provider_result_sha256,
+                request.continuum_evidence_sha256,
+                request.autonomy_audit_sha256,
+            )
+        except KeyError as error:
+            raise HTTPException(404, "Native session or decision not found") from error
+        except ValueError as error:
+            raise HTTPException(422, str(error)) from error
 
     @app.get("/dcml/experiences")
     def dcml_experiences() -> list[dict[str, Any]]:
